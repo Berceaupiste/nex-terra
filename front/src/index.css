@@ -1,0 +1,229 @@
+
+:root {
+  --bg: #f4f7fa;
+  --surface: #ffffff;
+  --ink: #14233b;
+  --ink-soft: #4a5c74;
+  --brand: #0b6e4f;
+  --brand-dark: #08553f;
+  --accent: #e8a33d;
+  --danger: #c0392b;
+  --ok: #1e8449;
+  --grid: #e2e8f0;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(20,35,59,.08), 0 1px 2px rgba(20,35,59,.04);
+  --shadow-lg: 0 8px 24px rgba(20,35,59,.12);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+a { color: var(--brand-dark); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* ---------- Header ---------- */
+.header {
+  padding: 32px 0 20px;
+  border-bottom: 1px solid var(--grid);
+}
+.header h1 {
+  font-size: 28px;
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+}
+.header p {
+  color: var(--ink-soft);
+  margin: 0;
+  font-size: 16px;
+}
+.tagline {
+  background: var(--brand);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-block;
+  margin-top: 10px;
+}
+
+/* ---------- Layout ---------- */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+}
+
+/* ---------- Cards ---------- */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.card h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.card .sub {
+  color: var(--ink-soft);
+  font-size: 14px;
+  margin-bottom: 14px;
+}
+
+/* ---------- Map ---------- */
+.map-wrap {
+  height: 100%;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+.map-wrap .leaflet-container {
+  height: 100%;
+  width: 100%;
+}
+
+/* ---------- Problem chips ---------- */
+.problems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.problem-chip {
+  background: #fdf3f2;
+  color: #8a2f23;
+  border: 1px solid #f3bfba;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- Priority gauges ---------- */
+.priorities { display: flex; gap: 12px; flex-wrap: wrap; }
+.prio-btn {
+  flex: 1 1 90px;
+  padding: 12px;
+  border: 2px solid var(--grid);
+  background: var(--surface);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  text-align: center;
+  transition: border-color .15s, box-shadow .15s;
+}
+.prio-btn:hover { border-color: var(--brand); }
+.prio-btn.active {
+  border-color: var(--brand);
+  background: #eef8f2;
+  box-shadow: 0 0 0 3px rgba(11,110,79,.15);
+}
+
+/* ---------- Metric grid ---------- */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.metric {
+  background: #f8fafc;
+  border: 1px solid var(--grid);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.metric .label { font-size: 12px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
+.metric .value { font-size: 20px; font-weight: 700; }
+.metric .unit { font-size: 12px; color: var(--ink-soft); font-weight: 400; }
+
+/* ---------- Comparison table ---------- */
+.comp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.comp-table th, .comp-table td {
+  border: 1px solid var(--grid);
+  padding: 10px 12px;
+  text-align: left;
+}
+.comp-table th {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+.comp-table tr:nth-child(even) td { background: #fafbfc; }
+.rank-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  font-weight: 700; font-size: 13px;
+}
+.rank-1 { background: #d9f2e4; color: #0b6e4f; }
+.rank-2 { background: #fef3d6; color: #b7791f; }
+.rank-3 { background: #eef2f7; color: #4a5c74; }
+
+/* ---------- Scenario slider ---------- */
+.scenario-slider { margin: 10px 0; }
+.slider-label { font-weight: 600; margin-bottom: 6px; display: block; }
+input[type=range] { width: 100%; }
+
+/* ---------- Explanation ---------- */
+.explanations { display: grid; gap: 14px; margin-top: 16px; }
+.expl {
+  border-left: 4px solid var(--brand);
+  background: #f8fafc;
+  padding: 14px 16px;
+  border-radius: 0 8px 8px 0;
+}
+.expl h3 { margin: 0 0 4px; font-size: 16px; }
+.expl p { margin: 4px 0; color: var(--ink-soft); font-size: 14px; }
+
+.choice {
+  border: 2px solid var(--grid);
+  border-radius: var(--radius);
+  padding: 14px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.choice:hover { border-color: var(--brand); }
+.choice.selected { border-color: var(--brand); background: #eef8f2; }
+.choice .crop-name { font-weight: 600; }
+.choice .metrics { font-size: 13px; color: var(--ink-soft); }
+
+/* ---------- Simulated future banner ---------- */
+.future-banner {
+  background: linear-gradient(135deg, #0b6e4f, #08553f);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin: 14px 0;
+}
+.future-banner p { margin: 4px 0; font-size: 15px; }
+.future-banner .impacts { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.future-banner .impact {
+  background: rgba(255,255,255,.15);
+  padding: 4px 10px; border-radius: 6px; font-size: 13px;
+}
+
+/* ---------- Responsive header ---------- */
+@media (max-width: 700px) {
+  .header h1 { font-size: 22px; }
+  .layout { grid-template-columns: 1fr; }
+}

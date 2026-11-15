@@ -716,6 +716,11 @@ def recommend_rotations(payload: RotationRecommendationRequest):
                 "drought": climate_scenario.get("drought", 0.0),
                 "rotation": list(result["rotation"]),
                 "water_total_mm": result["water_total_mm"],
+                "deficit_total_mm": result["water_budget"]["deficit_total_mm"],
+                "effective_rain_total_mm": round(sum(
+                    row.get("effective_rain_mm") or 0.0
+                    for row in result["water_budget"]["per_season"]
+                ), 1),
                 "n_balance_kg": result["n_balance_kg"],
                 "resilience_avg": result["resilience_avg"],
                 "soil_protection_avg": result["soil_protection_avg"],

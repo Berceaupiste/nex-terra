@@ -162,6 +162,7 @@ function ComparisonCharts({ rows }) {
   if (!rows.length) return null
 
   const maximumWater = Math.max(1, ...rows.map((row) => row.water_total_mm))
+  const maximumDeficit = Math.max(1, ...rows.map((row) => row.deficit_total_mm ?? 0))
   const panels = [
     {
       id: 'water',
@@ -169,6 +170,14 @@ function ComparisonCharts({ rows }) {
       note: 'Kc x NASA ET0 across the sequence · mm',
       scale: maximumWater,
       value: (row) => row.water_total_mm,
+      format: (value) => `${value.toFixed(0)} mm`,
+    },
+    {
+      id: 'deficit',
+      title: 'Rainfall deficit',
+      note: 'max(0, ETc - effective rainfall) · mm',
+      scale: maximumDeficit,
+      value: (row) => row.deficit_total_mm ?? 0,
       format: (value) => `${value.toFixed(0)} mm`,
     },
     {
@@ -1724,10 +1733,10 @@ export default function App() {
                     ? 'NASA POWER daily estimates + synthetic placeholders'
                     : 'Synthetic demo values — NASA POWER unavailable'}
                 </div>
-                <div className="sub"><b>Mean air temperature:</b> {nasaData.temp_mean_c.toFixed(2)} °C ({sourceLabel(nasaData.source_status?.temp_mean_c)}) · <b>Precipitation total:</b> {nasaData.rainfall_mm_tot.toFixed(1)} mm ({sourceLabel(nasaData.source_status?.rainfall_mm_tot)})</div>
-                <div className="sub"><b>Relative humidity:</b> {nasaData.humidity_pct.toFixed(0)}% ({sourceLabel(nasaData.source_status?.humidity_pct)}) · <b>Solar radiation:</b> {Number.isFinite(nasaData.solar_radiation_mj_m2_day) ? `${nasaData.solar_radiation_mj_m2_day.toFixed(1)} MJ/m²/day` : 'unavailable'} ({sourceLabel(nasaData.source_status?.solar_radiation_mj_m2_day)}) · <b>Wind:</b> {Number.isFinite(nasaData.wind_mean_ms) ? `${nasaData.wind_mean_ms.toFixed(1)} m/s` : 'unavailable'} ({sourceLabel(nasaData.source_status?.wind_mean_ms)})</div>
+                <div className="sub"><b>Mean air temperature:</b> {Number.isFinite(nasaData.temp_mean_c) ? `${nasaData.temp_mean_c.toFixed(2)} °C` : 'unavailable'} ({sourceLabel(nasaData.source_status?.temp_mean_c)}) · <b>Precipitation total:</b> {Number.isFinite(nasaData.rainfall_mm_tot) ? `${nasaData.rainfall_mm_tot.toFixed(1)} mm` : 'unavailable'} ({sourceLabel(nasaData.source_status?.rainfall_mm_tot)})</div>
+                <div className="sub"><b>Relative humidity:</b> {Number.isFinite(nasaData.humidity_pct) ? `${nasaData.humidity_pct.toFixed(0)}%` : 'unavailable'} ({sourceLabel(nasaData.source_status?.humidity_pct)}) · <b>Solar radiation:</b> {Number.isFinite(nasaData.solar_radiation_mj_m2_day) ? `${nasaData.solar_radiation_mj_m2_day.toFixed(1)} MJ/m²/day` : 'unavailable'} ({sourceLabel(nasaData.source_status?.solar_radiation_mj_m2_day)}) · <b>Wind:</b> {Number.isFinite(nasaData.wind_mean_ms) ? `${nasaData.wind_mean_ms.toFixed(1)} m/s` : 'unavailable'} ({sourceLabel(nasaData.source_status?.wind_mean_ms)})</div>
                 <div className="sub"><b>Reference ET0:</b> {Number.isFinite(nasaData.et0_mean_mm_day) ? `${nasaData.et0_mean_mm_day.toFixed(2)} mm/day` : 'unavailable'} ({sourceLabel(nasaData.source_status?.et0)}) · {Number.isFinite(nasaData.elevation_m) ? `${nasaData.elevation_m.toFixed(0)} m site elevation` : 'site elevation unavailable'}</div>
-                <div className="sub"><b>Vegetation (EVI):</b> {nasaData.evi.toFixed(3)} ({sourceLabel(nasaData.source_status?.evi)}) · <b>Soil moisture:</b> {nasaData.sm.toFixed(3)} ({sourceLabel(nasaData.source_status?.sm)}) · <b>Future climate:</b> {sourceLabel(nasaData.source_status?.cmip6)}</div>
+                <div className="sub"><b>Vegetation (EVI):</b> {Number.isFinite(nasaData.evi) ? nasaData.evi.toFixed(3) : 'unavailable'} ({sourceLabel(nasaData.source_status?.evi)}) · <b>Soil moisture:</b> {Number.isFinite(nasaData.sm) ? nasaData.sm.toFixed(3) : 'unavailable'} ({sourceLabel(nasaData.source_status?.sm)}) · <b>Future climate:</b> {sourceLabel(nasaData.source_status?.cmip6)}</div>
                 <div className="sub">{Number.isFinite(nasaData.lat) ? nasaData.lat.toFixed(3) : '—'}, {Number.isFinite(nasaData.lon) ? nasaData.lon.toFixed(3) : '—'} · {nasaData.observed_window_years?.join('–') || 'period unavailable'} · Values are gridded estimates, not field-sensor measurements.</div>
                 <div className="sub nasa-source-note">{nasaData.source_note || 'Data provenance is not supplied.'}</div>
               </div>
@@ -2222,7 +2231,7 @@ export default function App() {
                 </a>
               )}
               <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap <span>Map tiles and place-name attribution</span></a>
-              <a href="https://github.com/manabouate-cell/NEX-TERRA" target="_blank" rel="noreferrer">NEX TERRA source code <span>Apache License 2.0</span></a>
+              <a href="https://github.com/Berceaupiste/nex-terra" target="_blank" rel="noreferrer">NEX TERRA source code <span>Apache License 2.0</span></a>
             </section>
           </div>
         </section>

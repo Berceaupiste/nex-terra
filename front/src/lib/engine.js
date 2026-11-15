@@ -752,6 +752,12 @@ export async function buildRecommendations(payload, nasa, catalog) {
         drought: climateScenario.drought,
         rotation: result.rotation.slice(),
         water_total_mm: result.water_total_mm,
+        deficit_total_mm: result.water_budget.deficit_total_mm,
+        effective_rain_total_mm: roundHalfEven(
+          result.water_budget.per_season.reduce(
+            (sum, row) => sum + (row.effective_rain_mm || 0), 0,
+          ), 1,
+        ),
         n_balance_kg: result.n_balance_kg,
         resilience_avg: result.resilience_avg,
         soil_protection_avg: result.soil_protection_avg,

@@ -144,6 +144,9 @@ const report = await evaluate(`(() => {
     hasNasaDecisionText: /NASA POWER is a decision input/.test(text),
     hasTieNotice: /effectively tied|meaningfully separated/i.test(text),
     hasDeficitExplanation: /The deficit is not an irrigation|deficits are large/i.test(text),
+    hasResilienceExplanation: /share of that crop's own demand that rainfall fails to cover/i.test(text),
+    resilienceValues: [...document.querySelectorAll('.comp-table tbody tr')]
+      .map(tr => tr.children[6]?.textContent.trim() ?? ''),
     // Table headers are CSS-uppercased, so compare the header cells case-insensitively.
     headers: [...document.querySelectorAll('.comp-table thead th')].map(th => th.textContent.trim()),
     hasRevenueLabel: [...document.querySelectorAll('.comp-table thead th')]
@@ -156,13 +159,6 @@ const report = await evaluate(`(() => {
   }
 })()`)
 
-const resilienceNumbers = (report.resilienceValues || [])
-  .map((value) => Number.parseFloat(String(value).replace('%', '')))
-  .filter((value) => Number.isFinite(value))
-report.resilienceSpread = resilienceNumbers.length > 1
-  ? Math.round(((Math.max(...resilienceNumbers) - Math.min(...resilienceNumbers)) / 100) * 1000) / 1000
-  : 0
-
 const expectedCharts = ['ETc crop water demand', 'Rainfall deficit', 'Modelled resilience', 'Weighted prototype score']
 check('results render four charts', expectedCharts.every((t) => report.chartTitles.includes(t)), report.chartTitles.join(', '))
 check('comparison table has three strategies', report.tableRows === 3, `${report.tableRows} rows`)
@@ -173,9 +169,34 @@ check('NASA role text is the corrected one', report.hasNasaDecisionText === true
 check('no runtime error banner', report.hasError === false)
 check('tie notice explains score spread', report.hasTieNotice === true)
 check('deficit column is present', report.hasDeficitColumn === true)
-// The three options deliberately share crops, so their mean resilience is close;
-// back/test_agronomy.py asserts the wider winter-vs-summer difference (>0.05).
-check('resilience values are not identical', report.resilienceSpread > 0.003, `spread ${report.resilienceSpread}`)
+// Resilience is rendered as whole percentages, so three deliberately similar
+// options can legitimately round to the same value; asserting a spread there
+// would be flaky. Assert the values are present and well-formed instead. The
+// crop-level variance guard (winter vs summer > 0.05) lives in
+// back/test_agronomy.py, where the numbers are exact.
+const resilienceNumbers = report.resilienceValues.map((value) =>
+  Number.parseFloat(String(value).replace('%', '')),
+)
+const spread = resilienceNumbers.length > 1
+  ? Math.max(...resilienceNumbers) - Math.min(...resilienceNumbers)
+  : 0
+console.log(`INFO  resilience column: ${report.resilienceValues.join(', ')} (spread ${spread} points)`)
+check(
+  'resilience is reported for every option',
+  resilienceNumbers.length === 3 &&
+    resilienceNumbers.every((value) => Number.isFinite(value) && value > 0 && value <= 100),
+  report.resilienceValues.join(', '),
+)
+// Regression guard for the flat-resilience bug: while resilience ignored the
+// crop's water deficit it reported about 66-67% here. It now includes
+// deficit_share, which pulls these rainfed winter options below 60%. Integer
+// rounding cannot flip this, so the check stays deterministic.
+check(
+  'resilience reflects water deficit, not just scenario exposure',
+  resilienceNumbers.every((value) => value < 60),
+  report.resilienceValues.join(', '),
+)
+check('resilience composition is explained', report.hasResilienceExplanation === true)
 check('deficit/irrigation caveat is shown', report.hasDeficitExplanation === true)
 check('revenue labelled illustrative', report.hasRevenueLabel === true)
 

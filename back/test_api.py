@@ -557,7 +557,12 @@ def test_recommendations_remain_available_with_synthetic_climate_data(
     body = response.json()
     assert len(body["strategies"]) == 3
     assert body["comparison_context"]["nasa_data_status"] == "synthetic"
-    assert "do not calibrate" in body["comparison_context"]["nasa_role"]
+    # NASA POWER drives the water component when series are available; with no
+    # series the fallback must say so instead of reporting invented rainfall.
+    assert body["comparison_context"]["nasa_role"].startswith("NASA POWER is a decision input")
+    for strategy in body["strategies"]:
+        assert strategy["water_budget"]["water_source"] == "prototype_estimate"
+        assert strategy["components"]["water"] >= 0.0
 
 
 def test_recommendations_reject_non_selectable_current_crop(client):

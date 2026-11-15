@@ -190,14 +190,42 @@ Daily FAO-56 Penman–Monteith reference ET0 is computed only when NASA POWER
 inputs have at least 95% complete-day coverage and supplies site elevation.
 Actual vapour pressure uses the FAO mean-relative-humidity approximation.
 ET0 represents a standard grass reference surface, not a crop-specific water
-need or irrigation recommendation. NASA POWER observed weather and reference
-ET0 provide climate context; they do not calibrate crop coefficients or
-directly determine the prototype rotation score. Synthetic EVI and
-soil-moisture placeholders are fed into its
-resilience component. Sunshine duration and future-climate values also remain
-synthetic placeholders. `data_status` is `partial` when core POWER values are
-available and `synthetic` when their
-request fails or misses the coverage threshold. The frontend displays data
+need.
+
+### NASA POWER actually determines the score
+
+POWER monthly `ET0` and `rainfall` are **decision inputs**, not decoration:
+
+1. Each crop has a growing window (typical Moroccan sowing-to-harvest months)
+   and FAO-56 stage lengths in `back/data/agronomy.json`.
+2. `Kc_season` is the stage-length-weighted FAO-56 single crop coefficient.
+3. `ETc = Kc_season x ET0_season` (mm) — crop water demand for that window.
+4. `Pe` is USDA-SCS effective rainfall, applied month by month and summed.
+5. `deficit = max(0, ETc - Pe)` drives the **water** score component:
+   `water = 1 - mean_seasonal_deficit / 600 mm`, clipped to 0-1.
+6. The crop-window mean POWER temperature is compared with FAO EcoCrop optimal
+   bands; thermal suitability multiplies the **resilience** component.
+
+Cool-season crops therefore score differently in Tangier (≈700 mm/yr) than in
+Draa-Tafilalet (≈127 mm/yr) for a reason that is printed in every response:
+`water_budget.per_season` lists ETc, effective rainfall and deficit per crop,
+and `components`/`drivers` show how the final score was assembled.
+
+This is a **simplified seasonal balance**: it ignores soil water storage,
+irrigation efficiency, runoff, capillary rise and leaching, so the deficit is
+not an irrigation schedule. `Kc` is tabulated, not locally calibrated, and
+`ET0` is a gridded estimate.
+
+### What stays synthetic
+
+EVI and soil-moisture placeholders feed the resilience component and are
+labelled `synthetic` in `source_status`. Soil salinity is a prototype default
+(SoilGrids publishes no salinity product), so FAO-29 salinity yield factors are
+reported for information and **excluded from the score**. `data_status` is
+`partial` when core POWER values are available and `synthetic` when the request
+fails or misses the coverage threshold. When POWER series are missing, the water
+budget reports `available: false` and the score falls back to a labelled
+`prototype_estimate` instead of inventing rainfall. The frontend displays data
 sources and coverage, plus a year-selectable monthly chart; synthetic series
 are not plotted as NASA data.
 
@@ -218,11 +246,29 @@ After a field is selected, the app generates three exploratory annual-crop
 sequences from the simulator's supported crop pool, using the selected
 illustrative climate scenario, soil inputs, and farmer priorities. The farmer's
 current rotation is optional and can be added as a baseline. Each option shows
-crop evidence, region-level data gaps, and risks. Generated sequence positions
-are not regional planting calendars; crop coefficients and scores remain
-unvalidated prototype assumptions. NASA POWER observations are displayed as
-local climate context and do not directly calibrate the crop coefficients or
-rotation score.
+crop evidence, region-level data gaps, risks, its water budget (ETc, effective
+rainfall, deficit) and the score decomposition that produced it. Generated
+sequence positions are not regional planting calendars.
+
+### Scoring model
+
+```
+components = {
+  water:      1 - mean_seasonal_deficit / 600 mm          (NASA ET0 + rainfall)
+  nitrogen:   0.5 + 0.5 x mean N balance / 100 kg/ha
+  resilience: scenario resilience x thermal suitability    (NASA temperature)
+  soil:       soil protection x pH suitability             (soil pH)
+  economy:    crop revenue assumptions / 25000
+}
+weighted = sum(normalized priority weight x component)
+score    = weighted x (0.85 + 0.15 x mean family-transition compatibility)
+```
+
+Agricultural validation status: the arithmetic, unit conversions and API
+plumbing are unit-tested (`back/test_agronomy.py`), and the Python and browser
+engines are verified to produce identical scores. The coefficients themselves
+have **not** been validated against Moroccan field trials, yields or irrigation
+data; scores are comparative indicators, not predictions.
 
 ## Crop catalog and evidence
 

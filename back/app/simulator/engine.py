@@ -14,10 +14,11 @@ Engine:
   * A SciPy optimizer (differential evolution) that searches for the best
       rotation under a water cap and illustrative climate scenarios.
 
-Rotation scores are deterministic prototype estimates. NASA POWER weather
-values are exposed as context but do not calibrate this engine's scores.
-Climate scenarios are illustrative uniform shifts, not validated regional
-projections.
+Rotation scores are deterministic prototype estimates. NASA POWER monthly
+climate statistics *are* used as decision inputs: precipitation and reference
+ET0 set each crop's seasonal water deficit, and the crop-window mean
+temperature sets thermal suitability (see ``agronomy``). Climate scenarios are
+illustrative uniform shifts, not validated regional projections.
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from scipy.optimize import differential_evolution
 
 from ..crop_catalog import CROP_CATALOG
 from ..models import DEFAULT_PRIORITY_WEIGHTS
+from . import agronomy
 
 # --------------------------------------------------------------------------- #
 #  Paths and seed data
@@ -493,54 +495,121 @@ class Rotator:
         n = len(crops)
         season_metrics = []
         total_water = 0.0
+        total_deficit = 0.0
         total_n_balance = 0.0
         total_resilience = 0.0
         total_soil = 0.0
         total_econ = 0.0
-        observed_temp_c = nasa.get("temp_mean_c", 17.0) if nasa else 17.0
-        observed_rain_mm = nasa.get("rainfall_mm_tot", 0.0) if nasa else 0.0
-        observed_humidity = nasa.get("humidity_pct", 45.0) if nasa else 45.0
+        total_climate = 0.0
+        total_ph = 0.0
+        budget_rows = []
+        water_sources = set()
+        observed_temp_c = nasa.get("temp_mean_c") if nasa else None
+        observed_rain_mm = nasa.get("rainfall_mm_tot") if nasa else None
+        observed_humidity = nasa.get("humidity_pct") if nasa else None
+        observed_solar = nasa.get("solar_radiation_mj_m2_day") if nasa else None
+        observed_wind = nasa.get("wind_mean_ms") if nasa else None
+        et0_mean_mm_day = nasa.get("et0_mean_mm_day") if nasa else None
         evi = nasa.get("evi", 0.42) if nasa else 0.42
         sm = nasa.get("sm", 0.30) if nasa else 0.30
         cmip6_temp_shift = nasa.get("cmip6_temp_delta_c", 0.0) if nasa else 0.0
+        ece_ds_m = round(agronomy.SALINITY_TO_ECE * soil.nacl_ppth, 2)
         for i, code in enumerate(crops):
             prev = crops[i - 1] if i > 0 else None
             cur = self.crops.crop(code)
             legume_fix = self.legume_fix_benefit(prev) > 0.0
-            res = cur.climate_resilience(climate.get("temp_shift", 0.0),
-                                         climate.get("precipitation", 1.0),
-                                         climate.get("drought", 0.0),
-                                         evi=evi, sm=sm)
+            # --- water: ETc = Kc x ET0 over the crop window, deficit vs rain ---
+            budget = agronomy.water_budget(code, nasa, climate, soil_ph=soil.ph)
+            if budget.get("available"):
+                etc_mm = budget["etc_mm"]
+                deficit_mm = budget["deficit_mm"]
+                water_source = "nasa_power"
+                temp_window_c = budget.get("temp_window_c")
+            else:
+                # Labelled fallback: no NASA series for this window.
+                etc_mm = round(cur.water_req_mm(
+                    climate.get("temp_shift", 0.0),
+                    climate.get("drought", 0.0)), 1)
+                deficit_mm = etc_mm
+                water_source = "prototype_estimate"
+                temp_window_c = (
+                    round(observed_temp_c + float(climate.get("temp_shift", 0.0)))
+                    if observed_temp_c is not None else None
+                )
+            water_sources.add(water_source)
+            temp_suit = agronomy.temperature_suitability(code, temp_window_c)
+            ph_suit = agronomy.ph_suitability(code, soil.ph)
+            salt_yield = agronomy.salinity_yield_factor(code, ece_ds_m)
+            res_scenario = cur.climate_resilience(
+                climate.get("temp_shift", 0.0),
+                climate.get("precipitation", 1.0),
+                climate.get("drought", 0.0),
+                evi=evi, sm=sm)
+            # Thermal suitability is the part of resilience that NASA POWER
+            # temperature actually drives; keep it multiplicative and reported.
+            res = round(res_scenario * (temp_suit if temp_suit is not None else 1.0), 3)
             prev_cover = (i > 0 and
                           self.crops.crop(crops[i - 1]).family == "cover")
             soil_prot = cur.soil_protection(prev, prev_cover, soil, winter=(i < 2))
-            # water demand: scale by observed rainfall deficit vs a wet baseline
-            wwater = cur.water_req_mm(
-                climate.get("temp_shift", 0.0),
-                climate.get("drought", 0.0))
+            soil_scored = round(
+                soil_prot * (ph_suit if ph_suit is not None else 1.0), 3)
             nb = cur.nitrogen_balance(soil, prev, legume_fix)
             season_metrics.append({
                 "index": i + 1,
                 "crop": code,
-                "water_mm": round(wwater, 1),
+                "water_mm": round(etc_mm, 1),
+                "etc_mm": round(etc_mm, 1),
+                "deficit_mm": round(deficit_mm, 1),
+                "effective_rain_mm": budget.get("effective_rain_mm"),
+                "kc_season": budget.get("kc_season"),
+                "water_source": water_source,
+                "temp_window_c": temp_window_c,
+                "climate_suitability": temp_suit,
+                "ph_suitability": ph_suit,
+                "salinity_yield_factor": salt_yield,
                 "n_balance_kg": nb,
                 "resilience": res,
-                "soil_protection": soil_prot,
-                "econom_inc": round(wwater * 0.4 + cur.econ_rev_mad * 0.01, 1),
-                "nasa_temp_c": round(observed_temp_c, 2),
-                "nasa_rain_mm": round(observed_rain_mm, 1),
+                "soil_protection": soil_scored,
+                "econom_inc": round(etc_mm * 0.4 + cur.econ_rev_mad * 0.01, 1),
+                "nasa_temp_c": (
+                    round(observed_temp_c, 2)
+                    if observed_temp_c is not None else None
+                ),
+                "nasa_rain_mm": (
+                    round(observed_rain_mm, 1)
+                    if observed_rain_mm is not None else None
+                ),
                 "nasa_evi": round(evi, 3),
                 "nasa_sm": round(sm, 3),
             })
-            total_water += wwater
+            budget_rows.append({"crop": code, **budget})
+            total_water += etc_mm
+            total_deficit += deficit_mm
             total_n_balance += nb
             total_resilience += res
-            total_soil += soil_prot
+            total_soil += soil_scored
             total_econ += cur.econ_rev_mad
+            total_climate += temp_suit if temp_suit is not None else 0.0
+            total_ph += ph_suit if ph_suit is not None else 0.0
 
         avg = lambda v: round(v / n, 3) if n else 0.0
-        # economy per unit water (MAD / m3) - a dryland efficiency metric
-        econ_per_water = round(total_econ / total_water, 1) if total_water > 0 else 0.0
+        # Gross revenue per cubic metre of crop water demand. 1 mm over 1 ha is
+        # 10 m3, so mm must be converted before dividing.
+        econ_per_water = (
+            round(total_econ / (total_water * 10.0), 1)
+            if total_water > 0 else 0.0
+        )
+
+        # Rotation compatibility between consecutive crops (botanical family
+        # transitions). This term was previously computed but never scored.
+        family_pairs = []
+        for i in range(1, n):
+            family_pairs.append(self.compat(
+                self.crops.crop(crops[i - 1]).family,
+                self.crops.crop(crops[i]).family,
+            ))
+        compat_avg = round(sum(family_pairs) / len(family_pairs), 3) if family_pairs else 0.55
+        rotation_factor = round(0.85 + 0.15 * compat_avg, 4)
 
         weights = (
             DEFAULT_PRIORITY_WEIGHTS
@@ -565,20 +634,49 @@ class Rotator:
             for key, value in normalized_weights.items()
         }
 
-        # water scarcity penalty
-        water_penalty = min(1.0, total_water / 1600.0)
+        # Water suitability = share of crop water demand met by effective
+        # rainfall, expressed against a documented reference demand.
+        water_penalty = min(1.0, (total_deficit / n) / agronomy.WATER_DEFICIT_REFERENCE_MM)
         clamp = lambda value: max(0.0, min(1.0, value))
         components = {
-            "water": clamp(1.0 - water_penalty),
+            "water": clamp(agronomy.water_component(total_deficit, n)),
             "nitrogen": clamp(0.5 + 0.5 * (total_n_balance / n / 100.0)),
             "resilience": clamp(total_resilience / n),
             "soil": clamp(total_soil / n),
             "economy": clamp(total_econ / n / 25000.0),
         }
-        score = sum(
+        weighted_score = sum(
             normalized_weights[key] * components[key]
             for key in normalized_weights
         )
+        score = weighted_score * rotation_factor
+
+        drivers = sorted(
+            (
+                (normalized_weights[key] * components[key], key)
+                for key in normalized_weights
+            ),
+            reverse=True,
+        )
+        top_drivers = [
+            {
+                "component": key,
+                "weight": round(normalized_weights[key], 4),
+                "value": round(components[key], 3),
+                "contribution": round(contribution, 4),
+            }
+            for contribution, key in drivers[:3]
+        ]
+        limitations = [
+            "ETc = Kc x ET0 with tabulated FAO-56 coefficients, not locally calibrated",
+            "Deficit = max(0, ETc - effective rainfall) ignores soil water storage, "
+            "irrigation efficiency and leaching",
+            "Optimal temperature and pH bands are broad literature ranges, not "
+            "cultivar-specific responses",
+            "Soil salinity is a prototype default (SoilGrids has no salinity "
+            "product), so salinity stress is reported but not scored",
+            "Pest, disease, labour, machinery and market constraints are not modelled",
+        ]
 
         return {
             "rotations": len(crops),
@@ -592,15 +690,76 @@ class Rotator:
             "economic_potential_avg": round(total_econ / n, 1),
             "econ_per_water_mad_m3": econ_per_water,
             "score": round(score, 4),
+            "weighted_score_before_rotation": round(weighted_score, 4),
+            "rotation_compatibility": {
+                "compat_avg": compat_avg,
+                "factor": rotation_factor,
+                "note": (
+                    "Family-transition compatibility multiplies the weighted "
+                    "score by 0.85-1.00 so that agronomically poor sequences "
+                    "cannot win on climate or economics alone."
+                ),
+            },
             "priority_weights": {
                 key: round(value, 4)
                 for key, value in normalized_weights.items()
             },
+            "components": {
+                key: round(value, 3) for key, value in components.items()
+            },
+            "drivers": top_drivers,
+            "water_budget": {
+                "water_source": (
+                    "nasa_power" if water_sources == {"nasa_power"}
+                    else sorted(water_sources)[0] if water_sources else "none"
+                ),
+                "etc_total_mm": round(total_water, 1),
+                "etc_avg_mm": round(avg(total_water), 1),
+                "deficit_total_mm": round(total_deficit, 1),
+                "deficit_avg_mm": round(avg(total_deficit), 1),
+                "reference_deficit_mm": agronomy.WATER_DEFICIT_REFERENCE_MM,
+                "method": (
+                    "ETc = Kc_season x ET0_season over each crop window; "
+                    "deficit = max(0, ETc - USDA-SCS effective rainfall)"
+                ),
+                "per_season": budget_rows,
+            },
+            "soil_suitability": {
+                "ph": soil.ph,
+                "ph_component": round(total_ph / n, 3) if n else None,
+                "ece_ds_m": ece_ds_m,
+                "ece_note": (
+                    "ECe estimated as 1.8 x the field NaCl value; that NaCl "
+                    "value is a prototype default, so salinity yield factors "
+                    "are informational only and excluded from the score."
+                ),
+            },
+            "limitations": limitations,
             "nasa": {
-                "temp_mean_c": round(observed_temp_c, 2),
-                "rainfall_mm_tot": round(observed_rain_mm, 1),
-                "sun_hours": round(5.0, 1),
-                "humidity_pct": round(45.0, 1),
+                "temp_mean_c": (
+                    round(observed_temp_c, 2)
+                    if observed_temp_c is not None else None
+                ),
+                "rainfall_mm_tot": (
+                    round(observed_rain_mm, 1)
+                    if observed_rain_mm is not None else None
+                ),
+                "humidity_pct": (
+                    round(observed_humidity, 1)
+                    if observed_humidity is not None else None
+                ),
+                "solar_radiation_mj_m2_day": (
+                    round(observed_solar, 2)
+                    if observed_solar is not None else None
+                ),
+                "wind_mean_ms": (
+                    round(observed_wind, 2)
+                    if observed_wind is not None else None
+                ),
+                "et0_mean_mm_day": (
+                    round(et0_mean_mm_day, 2)
+                    if et0_mean_mm_day is not None else None
+                ),
                 "evi": round(evi, 3),
                 "sm": round(sm, 3),
                 "cmip6_temp_delta_c": round(cmip6_temp_shift, 2),

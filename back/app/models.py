@@ -210,6 +210,15 @@ class SeasonMetric(BaseModel):
     index: int
     crop: str
     water_mm: float
+    etc_mm: Optional[float] = None
+    deficit_mm: Optional[float] = None
+    effective_rain_mm: Optional[float] = None
+    kc_season: Optional[float] = None
+    water_source: Optional[str] = None
+    temp_window_c: Optional[float] = None
+    climate_suitability: Optional[float] = None
+    ph_suitability: Optional[float] = None
+    salinity_yield_factor: Optional[float] = None
     n_balance_kg: float
     resilience: float
     soil_protection: float
@@ -237,6 +246,12 @@ class RotationResult(BaseModel):
     scenarios: Dict[str, Any] = Field(default_factory=dict)
     seasons: List[SeasonMetric] = Field(default_factory=list)
     nasa: Dict[str, Any] = Field(default_factory=dict)
+    water_budget: Dict[str, Any] = Field(default_factory=dict)
+    components: Dict[str, float] = Field(default_factory=dict)
+    drivers: List[Dict[str, Any]] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
+    rotation_compatibility: Dict[str, Any] = Field(default_factory=dict)
+    soil_suitability: Dict[str, Any] = Field(default_factory=dict)
     field: Optional[FarmField] = None
 
 

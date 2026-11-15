@@ -9,6 +9,20 @@
  */
 
 import { apiUrl } from './dataSource.js'
+import {
+  WATER_DEFICIT_REFERENCE_MM,
+  SALINITY_TO_ECE,
+  phSuitability,
+  roundHalfEven,
+  salinityYieldFactor,
+  temperatureSuitability,
+  waterBudget,
+  waterComponent,
+} from './agronomy.js'
+
+// Re-exported so the results panel can describe the coincidence window and
+// coefficients without importing the agronomy module directly.
+export { kcSeason, SALINITY_TO_ECE, WATER_DEFICIT_REFERENCE_MM } from './agronomy.js'
 
 export const DEFAULT_PRIORITY_WEIGHTS = {
   water: 0.2,
@@ -274,68 +288,138 @@ export function scoreRotation(cropsCodes, soil, climate, nasa = null, priorityWe
   const n = cropsCodes.length
   const seasons = []
   let totalWater = 0.0
+  let totalDeficit = 0.0
   let totalN = 0.0
   let totalResilience = 0.0
   let totalSoil = 0.0
   let totalEcon = 0.0
+  let totalPh = 0.0
+  const budgetRows = []
+  const waterSources = new Set()
 
-  const observedTemp = nasa ? (nasa.temp_mean_c ?? 17.0) : 17.0
-  const observedRain = nasa ? (nasa.rainfall_mm_tot ?? 0.0) : 0.0
+  const observedTemp = nasa ? nullableNumber(nasa.temp_mean_c) : null
+  const observedRain = nasa ? nullableNumber(nasa.rainfall_mm_tot) : null
+  const observedHumidity = nasa ? nullableNumber(nasa.humidity_pct) : null
+  const observedSolar = nasa ? nullableNumber(nasa.solar_radiation_mj_m2_day) : null
+  const observedWind = nasa ? nullableNumber(nasa.wind_mean_ms) : null
+  const et0MeanMmDay = nasa ? nullableNumber(nasa.et0_mean_mm_day) : null
   const evi = nasa ? (nasa.evi ?? 0.42) : 0.42
   const sm = nasa ? (nasa.sm ?? 0.30) : 0.30
   const cmip6TempShift = nasa ? (nasa.cmip6_temp_delta_c ?? 0.0) : 0.0
+  const eceDsM = roundHalfEven(SALINITY_TO_ECE * profile.nacl_ppth, 2)
+  const tempShift = climate.temp_shift ?? 0.0
 
   cropsCodes.forEach((code, i) => {
     const prev = i > 0 ? cropsCodes[i - 1] : null
     const cur = crop(code)
     const legumeFix = legumeFixBenefit(prev) > 0.0
-    const res = cur.climateResilience(
-      climate.temp_shift ?? 0.0,
+
+    // --- water: ETc = Kc x ET0 over the crop window, deficit vs rainfall ---
+    const budget = waterBudget(code, nasa, climate)
+    let etcMm
+    let deficitMm
+    let waterSource
+    let tempWindowC
+    if (budget.available) {
+      etcMm = budget.etc_mm
+      deficitMm = budget.deficit_mm
+      waterSource = 'nasa_power'
+      tempWindowC = budget.temp_window_c
+    } else {
+      etcMm = round(cur.waterReqMm(tempShift, climate.drought ?? 0.0), 1)
+      deficitMm = etcMm
+      waterSource = 'prototype_estimate'
+      tempWindowC = observedTemp !== null ? roundHalfEven(observedTemp + tempShift, 0) : null
+    }
+    waterSources.add(waterSource)
+
+    const tempSuit = temperatureSuitability(code, tempWindowC)
+    const phSuit = phSuitability(code, profile.ph)
+    const saltYield = salinityYieldFactor(code, eceDsM)
+    const resScenario = cur.climateResilience(
+      tempShift,
       climate.precipitation ?? 1.0,
       climate.drought ?? 0.0,
       evi,
       sm,
     )
+    const res = round(resScenario * (tempSuit ?? 1.0), 3)
     const prevCover = i > 0 && crop(cropsCodes[i - 1]).family === 'cover'
     const soilProt = cur.soilProtection(prev, prevCover, profile)
-    const wwater = cur.waterReqMm(climate.temp_shift ?? 0.0, climate.drought ?? 0.0)
+    const soilScored = round(soilProt * (phSuit ?? 1.0), 3)
     const nb = cur.nitrogenBalance(profile, prev, legumeFix)
     seasons.push({
       index: i + 1,
       crop: code,
-      water_mm: round(wwater, 1),
+      water_mm: round(etcMm, 1),
+      etc_mm: round(etcMm, 1),
+      deficit_mm: round(deficitMm, 1),
+      effective_rain_mm: budget.effective_rain_mm ?? null,
+      kc_season: budget.kc_season ?? null,
+      water_source: waterSource,
+      temp_window_c: tempWindowC,
+      climate_suitability: tempSuit,
+      ph_suitability: phSuit,
+      salinity_yield_factor: saltYield,
       n_balance_kg: nb,
       resilience: res,
-      soil_protection: soilProt,
-      econom_inc: round(wwater * 0.4 + cur.econ_rev_mad * 0.01, 1),
-      nasa_temp_c: round(observedTemp, 2),
-      nasa_rain_mm: round(observedRain, 1),
+      soil_protection: soilScored,
+      econom_inc: round(etcMm * 0.4 + cur.econ_rev_mad * 0.01, 1),
+      nasa_temp_c: observedTemp !== null ? roundHalfEven(observedTemp, 2) : null,
+      nasa_rain_mm: observedRain !== null ? roundHalfEven(observedRain, 1) : null,
       nasa_evi: round(evi, 3),
       nasa_sm: round(sm, 3),
     })
-    totalWater += wwater
+    budgetRows.push({ crop: code, ...budget })
+    totalWater += etcMm
+    totalDeficit += deficitMm
     totalN += nb
     totalResilience += res
-    totalSoil += soilProt
+    totalSoil += soilScored
     totalEcon += cur.econ_rev_mad
+    totalPh += phSuit ?? 0.0
   })
 
   const avg = value => (n ? round(value / n, 3) : 0.0)
-  const econPerWater = totalWater > 0 ? round(totalEcon / totalWater, 1) : 0.0
+  // Gross revenue per cubic metre of crop water demand (1 mm over 1 ha = 10 m3).
+  const econPerWater = totalWater > 0 ? round(totalEcon / (totalWater * 10.0), 1) : 0.0
   const weights = normalizePriorities(priorityWeights ?? DEFAULT_PRIORITY_WEIGHTS)
 
-  const waterPenalty = Math.min(1.0, totalWater / 1600.0)
+  // Rotation compatibility between consecutive botanical families.
+  const familyPairs = []
+  for (let i = 1; i < n; i += 1) {
+    familyPairs.push(
+      compat(crop(cropsCodes[i - 1]).family, crop(cropsCodes[i]).family),
+    )
+  }
+  const compatAvg = familyPairs.length
+    ? round(familyPairs.reduce((a, b) => a + b, 0) / familyPairs.length, 3)
+    : 0.55
+  const rotationFactor = roundHalfEven(0.85 + 0.15 * compatAvg, 4)
+
+  const waterPenalty = Math.min(1.0, (totalDeficit / n) / WATER_DEFICIT_REFERENCE_MM)
   const components = {
-    water: clamp01(1.0 - waterPenalty),
+    water: clamp01(waterComponent(totalDeficit, n)),
     nitrogen: clamp01(0.5 + 0.5 * (totalN / n / 100.0)),
     resilience: clamp01(totalResilience / n),
     soil: clamp01(totalSoil / n),
     economy: clamp01(totalEcon / n / 25000.0),
   }
-  const score = Object.keys(weights).reduce(
+  const weightedScore = Object.keys(weights).reduce(
     (sum, key) => sum + weights[key] * components[key],
     0,
   )
+  const score = weightedScore * rotationFactor
+
+  const drivers = Object.keys(weights)
+    .map(key => [weights[key] * components[key], key])
+    .sort((a, b) => (b[0] === a[0] ? (a[1] < b[1] ? -1 : 1) : b[0] - a[0]))
+  const topDrivers = drivers.slice(0, 3).map(([contribution, key]) => ({
+    component: key,
+    weight: round(weights[key], 4),
+    value: round(components[key], 3),
+    contribution: round(contribution, 4),
+  }))
 
   return {
     rotations: n,
@@ -349,21 +433,81 @@ export function scoreRotation(cropsCodes, soil, climate, nasa = null, priorityWe
     economic_potential_avg: round(totalEcon / n, 1),
     econ_per_water_mad_m3: econPerWater,
     score: round(score, 4),
+    weighted_score_before_rotation: round(weightedScore, 4),
+    rotation_compatibility: {
+      compat_avg: compatAvg,
+      factor: rotationFactor,
+      note:
+        'Family-transition compatibility multiplies the weighted score by ' +
+        '0.85-1.00 so that agronomically poor sequences cannot win on climate ' +
+        'or economics alone.',
+    },
     priority_weights: Object.fromEntries(
       Object.entries(weights).map(([key, value]) => [key, round(value, 4)]),
     ),
-    nasa: buildNasaBlock(nasa, observedTemp, observedRain, evi, sm, cmip6TempShift),
+    components: Object.fromEntries(
+      Object.entries(components).map(([key, value]) => [key, round(value, 3)]),
+    ),
+    drivers: topDrivers,
+    water_budget: {
+      water_source:
+        waterSources.size === 1 && waterSources.has('nasa_power')
+          ? 'nasa_power'
+          : [...waterSources].sort()[0] ?? 'none',
+      etc_total_mm: round(totalWater, 1),
+      etc_avg_mm: round(avg(totalWater), 1),
+      deficit_total_mm: round(totalDeficit, 1),
+      deficit_avg_mm: round(avg(totalDeficit), 1),
+      reference_deficit_mm: WATER_DEFICIT_REFERENCE_MM,
+      method:
+        'ETc = Kc_season x ET0_season over each crop window; ' +
+        'deficit = max(0, ETc - USDA-SCS effective rainfall)',
+      per_season: budgetRows,
+    },
+    soil_suitability: {
+      ph: profile.ph,
+      ph_component: n ? round(totalPh / n, 3) : null,
+      ece_ds_m: eceDsM,
+      ece_note:
+        'ECe estimated as 1.8 x the field NaCl value; that NaCl value is a ' +
+        'prototype default, so salinity yield factors are informational only ' +
+        'and excluded from the score.',
+    },
+    limitations: [
+      'ETc = Kc x ET0 with tabulated FAO-56 coefficients, not locally calibrated',
+      'Deficit = max(0, ETc - effective rainfall) ignores soil water storage, ' +
+        'irrigation efficiency and leaching',
+      'Optimal temperature and pH bands are broad literature ranges, not ' +
+        'cultivar-specific responses',
+      'Soil salinity is a prototype default (SoilGrids has no salinity product), ' +
+        'so salinity stress is reported but not scored',
+      'Pest, disease, labour, machinery and market constraints are not modelled',
+    ],
+    nasa: buildNasaBlock(
+      nasa, observedTemp, observedRain, evi, sm, cmip6TempShift,
+      { humidity: observedHumidity, solar: observedSolar, wind: observedWind, et0: et0MeanMmDay },
+    ),
     seasons,
     water_cap_factor: waterPenalty,
   }
 }
 
-function buildNasaBlock(nasa, observedTemp, observedRain, evi, sm, cmip6TempShift) {
+function nullableNumber(value) {
+  if (value === null || value === undefined) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function buildNasaBlock(nasa, observedTemp, observedRain, evi, sm, cmip6TempShift, extra = {}) {
+  const roundOrNull = (value, digits) =>
+    value === null || value === undefined ? null : roundHalfEven(value, digits)
   return {
-    temp_mean_c: round(observedTemp, 2),
-    rainfall_mm_tot: round(observedRain, 1),
-    sun_hours: 5.0,
-    humidity_pct: 45.0,
+    temp_mean_c: roundOrNull(observedTemp, 2),
+    rainfall_mm_tot: roundOrNull(observedRain, 1),
+    humidity_pct: roundOrNull(extra.humidity, 1),
+    solar_radiation_mj_m2_day: roundOrNull(extra.solar, 2),
+    wind_mean_ms: roundOrNull(extra.wind, 2),
+    et0_mean_mm_day: roundOrNull(extra.et0, 2),
     evi: round(evi, 3),
     sm: round(sm, 3),
     cmip6_temp_delta_c: round(cmip6TempShift, 2),
@@ -582,6 +726,18 @@ export async function buildRecommendations(payload, nasa, catalog) {
     Object.assign(strategy, strategyEvidence(strategy.rotation, field, catalogByCode))
   }
 
+  // Attach the water budget and score decomposition for the selected scenario.
+  for (const strategy of strategies) {
+    const scored = scoreRotation(strategy.rotation, soil, scenario, nasa, priorities)
+    strategy.components = scored.components
+    strategy.drivers = scored.drivers
+    strategy.water_budget = scored.water_budget
+    strategy.rotation_compatibility = scored.rotation_compatibility
+    strategy.limitations = [...(strategy.limitations ?? []), ...scored.limitations]
+    strategy.score = scored.score
+    strategy.scenario_id = scenario.id
+  }
+
   const comparisons = []
   for (const climateScenario of scenarios) {
     for (const strategy of strategies) {
@@ -640,16 +796,21 @@ export async function buildRecommendations(payload, nasa, catalog) {
       score_explanation:
         'Options are generated by searching supported three-crop sequences with different simulator crop families, then ranking them for the selected scenario and priorities. They are exploratory candidates, not validated recommendations.',
       score_inputs: [
-        'Prototype crop coefficients and water-demand assumptions.',
-        'User-supplied soil measurements where present; otherwise prototype default soil values.',
+        'NASA POWER monthly reference ET0 (FAO-56 Penman-Monteith from T2M_MIN/MAX, RH2M, WS2M, ALLSKY_SFC_SW_DWN, PS) and PRECTOTCORR rainfall over each crop growing window.',
+        'FAO-56 single crop coefficients (Kc ini/mid/end) and stage lengths, giving ETc = Kc_season x ET0_season.',
+        'Water deficit = max(0, ETc - USDA-SCS effective rainfall) per season; this drives the water component.',
+        'Crop-window mean NASA POWER temperature against FAO EcoCrop optimal bands; this drives the thermal part of resilience.',
+        'User-supplied soil measurements where present; otherwise prototype default soil values (pH affects soil suitability).',
         'The selected illustrative climate scenario and normalized priority weights.',
-        'Synthetic vegetation and soil-moisture placeholders, which affect the prototype resilience component.',
+        'Botanical-family transition compatibility, applied as a 0.85-1.00 multiplier on the weighted score.',
+        'Synthetic vegetation (EVI) and soil-moisture placeholders, labelled as synthetic in the data provenance block.',
       ],
       nasa_role:
-        'NASA POWER weather and FAO-56 reference ET0 are shown as climate context; observed weather and ET0 do not calibrate the prototype crop coefficients or directly determine the rotation score.',
+        'NASA POWER is a decision input, not decoration: monthly ET0 and rainfall set each crop seasonal water deficit (the water component), and the crop-window mean temperature sets thermal suitability inside the resilience component. Uncertainties are that Kc is tabulated rather than locally calibrated, ET0 is gridded, and the deficit ignores soil water storage.',
       data_gaps: [
-        'No verified crop calendar or crop-specific suitability layer is available for the selected administrative region.',
-        'Crop-stage water schedules and crop-specific Kc values are not used to calculate the prototype water metric.',
+        'No verified crop calendar is available for the selected administrative region; growing windows are typical sowing-to-harvest months, not field-observed phenology.',
+        'The water balance excludes soil water storage, irrigation efficiency, runoff, capillary rise and leaching, so the deficit is not an irrigation schedule.',
+        'Soil salinity is a prototype default (SoilGrids publishes no salinity product); salinity yield factors are reported for information and excluded from the score.',
         "Crop presence may be unverified in the selected region; see each option's evidence and data gaps.",
         'Pest and disease cycles are not modeled.',
         'The economic component uses prototype revenue assumptions; market prices, input costs, and net margins are not modeled.',

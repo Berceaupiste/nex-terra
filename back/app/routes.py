@@ -77,10 +77,9 @@ def _nasa_payload(lat: float, lon: float) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - keep the demo online no matter what
         log.warning("nasa payload unavailable: %s", exc)
         return {
-            "temp_mean_c": 16.8,
-            "rainfall_mm_tot": 0.0,
-            "sun_hours": 5.0,
-            "humidity_pct": 45.0,
+            "temp_mean_c": None,
+            "rainfall_mm_tot": None,
+            "humidity_pct": None,
             "temp_min_mean_c": None,
             "temp_max_mean_c": None,
             "solar_radiation_mj_m2_day": None,
@@ -104,8 +103,7 @@ def _nasa_payload(lat: float, lon: float) -> Dict[str, Any]:
                         "source": "Route fallback",
                     }
                     for key in (
-                        "temp_mean_c", "rainfall_mm_tot", "sun_hours",
-                        "humidity_pct", "evi", "sm", "cmip6",
+                        "temp_mean_c", "rainfall_mm_tot"
                     )
                 },
                 **{
@@ -345,6 +343,12 @@ def simulate(payload: RotationRequest):
         priority_weights=res["priority_weights"],
         seasons=res["seasons"],
         nasa=res["nasa"],
+        water_budget=res["water_budget"],
+        components=res["components"],
+        drivers=res["drivers"],
+        limitations=res["limitations"],
+        rotation_compatibility=res["rotation_compatibility"],
+        soil_suitability=res["soil_suitability"],
         field=field,
     )
 
@@ -669,6 +673,26 @@ def recommend_rotations(payload: RotationRecommendationRequest):
                 "This is a data gap, not evidence of absence."
             )
 
+    # Attach the water budget and score decomposition for the selected
+    # scenario so the UI can show why an option scored as it did.
+    for strategy in strategies:
+        try:
+            scored = rotator.score_rotation(
+                strategy["rotation"], soil, scenario, nasa=nasa,
+                priority_weights=payload.priorities,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        strategy["components"] = scored["components"]
+        strategy["drivers"] = scored["drivers"]
+        strategy["water_budget"] = scored["water_budget"]
+        strategy["rotation_compatibility"] = scored["rotation_compatibility"]
+        strategy["limitations"] = list(strategy.get("limitations", [])) + [
+            item for item in scored["limitations"]
+        ]
+        strategy["score"] = scored["score"]
+        strategy["scenario_id"] = scenario.get("id", "default")
+
     comparisons = []
     for climate_scenario in scenarios:
         for strategy in strategies:
@@ -741,31 +765,60 @@ def recommend_rotations(payload: RotationRecommendationRequest):
                 "They are exploratory candidates, not validated recommendations."
             ),
             "score_inputs": [
-                "Prototype crop coefficients and water-demand assumptions.",
+                (
+                    "NASA POWER monthly reference ET0 (FAO-56 Penman-Monteith "
+                    "from T2M_MIN/MAX, RH2M, WS2M, ALLSKY_SFC_SW_DWN, PS) and "
+                    "PRECTOTCORR rainfall over each crop growing window."
+                ),
+                (
+                    "FAO-56 single crop coefficients (Kc ini/mid/end) and stage "
+                    "lengths, giving ETc = Kc_season x ET0_season."
+                ),
+                (
+                    "Water deficit = max(0, ETc - USDA-SCS effective rainfall) "
+                    "per season; this drives the water component."
+                ),
+                (
+                    "Crop-window mean NASA POWER temperature against FAO EcoCrop "
+                    "optimal bands; this drives the thermal part of resilience."
+                ),
                 (
                     "User-supplied soil measurements where present; otherwise "
-                    "prototype default soil values."
+                    "prototype default soil values (pH affects soil suitability)."
                 ),
                 "The selected illustrative climate scenario and normalized priority weights.",
                 (
-                    "Synthetic vegetation and soil-moisture placeholders, "
-                    "which affect the prototype resilience component."
+                    "Botanical-family transition compatibility, applied as a "
+                    "0.85-1.00 multiplier on the weighted score."
+                ),
+                (
+                    "Synthetic vegetation (EVI) and soil-moisture placeholders, "
+                    "labelled as synthetic in the data provenance block."
                 ),
             ],
             "nasa_role": (
-                "NASA POWER weather and FAO-56 reference ET0 are shown as "
-                "climate context; observed weather and ET0 do not calibrate "
-                "the prototype crop coefficients or directly determine the "
-                "rotation score."
+                "NASA POWER is a decision input, not decoration: monthly ET0 and "
+                "rainfall set each crop's seasonal water deficit (the water "
+                "component), and the crop-window mean temperature sets thermal "
+                "suitability inside the resilience component. Uncertainties are "
+                "that Kc is tabulated rather than locally calibrated, ET0 is "
+                "gridded, and the deficit ignores soil water storage."
             ),
             "data_gaps": [
                 (
-                    "No verified crop calendar or crop-specific suitability "
-                    "layer is available for the selected administrative region."
+                    "No verified crop calendar is available for the selected "
+                    "administrative region; growing windows are typical "
+                    "sowing-to-harvest months, not field-observed phenology."
                 ),
                 (
-                    "Crop-stage water schedules and crop-specific Kc values "
-                    "are not used to calculate the prototype water metric."
+                    "The water balance excludes soil water storage, irrigation "
+                    "efficiency, runoff, capillary rise and leaching, so the "
+                    "deficit is not an irrigation schedule."
+                ),
+                (
+                    "Soil salinity is a prototype default (SoilGrids publishes "
+                    "no salinity product); salinity yield factors are reported "
+                    "for information and excluded from the score."
                 ),
                 (
                     "Crop presence may be unverified in the selected region; "

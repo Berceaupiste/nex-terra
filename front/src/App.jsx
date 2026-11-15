@@ -165,8 +165,8 @@ function ComparisonCharts({ rows }) {
   const panels = [
     {
       id: 'water',
-      title: 'Estimated water demand',
-      note: 'Total across the modelled sequence · mm',
+      title: 'ETc crop water demand',
+      note: 'Kc x NASA ET0 across the sequence · mm',
       scale: maximumWater,
       value: (row) => row.water_total_mm,
       format: (value) => `${value.toFixed(0)} mm`,
@@ -1950,7 +1950,7 @@ export default function App() {
           <div className="section-lead">
             <span className="eyebrow">06 / Results & analytics</span>
             <h2>Compare the trade-offs, not just a single score.</h2>
-            <p>Review modelled water demand, crop sequence, resilience, soil protection and the assumptions behind each option.</p>
+            <p>Review crop water demand (ETc), the seasonal deficit against NASA POWER rainfall, crop sequence, resilience, soil protection and the assumptions behind each option.</p>
           </div>
           {!comparison && !comparing && !comparisonError && (
             <div className="card empty-state">
@@ -2001,7 +2001,7 @@ export default function App() {
                 <div className="comp-table-wrap">
                   <table className="comp-table">
                     <thead><tr>
-                      <th>Cross-scenario rank</th><th>Strategy in selected scenario</th><th>Crops</th><th>Prototype water demand (mm)</th><th>Prototype N balance (kg/ha)</th><th>Modelled resilience</th><th>Modelled soil protection</th><th>Prototype gross revenue assumption (MAD/ha)</th><th>Prototype score</th>
+                      <th>Cross-scenario rank</th><th>Strategy in selected scenario</th><th>Crops</th><th>ETc crop water demand (mm)</th><th>Prototype N balance (kg/ha)</th><th>Modelled resilience</th><th>Modelled soil protection</th><th>Prototype gross revenue assumption (MAD/ha)</th><th>Prototype score</th>
                     </tr></thead>
                     <tbody>
                       {activeRows.map(c => (
@@ -2058,6 +2058,50 @@ export default function App() {
                           )
                         })}
                       </ul>
+                      {strategy.water_budget && (
+                        <div className="strategy-water">
+                          <strong>
+                            Water budget —{' '}
+                            {strategy.water_budget.water_source === 'nasa_power'
+                              ? 'NASA POWER monthly ET₀ and rainfall'
+                              : 'labelled fallback estimate (no NASA POWER series for this window)'}
+                          </strong>
+                          <p>
+                            Crop water demand ETc = Kc × ET₀:{' '}
+                            <strong>{Math.round(strategy.water_budget.etc_total_mm)} mm</strong> over
+                            three seasons. Effective rainfall:{' '}
+                            <strong>
+                              {Math.round((strategy.water_budget.per_season || [])
+                                .reduce((sum, row) => sum + (row.effective_rain_mm || 0), 0))} mm
+                            </strong>. Simplified deficit (demand not met by rain):{' '}
+                            <strong>{Math.round(strategy.water_budget.deficit_total_mm)} mm</strong>.
+                          </p>
+                          <p className="sub">
+                            Per season: {(strategy.water_budget.per_season || []).map(row =>
+                              `${row.crop}: ETc ${row.etc_mm ?? '—'} mm, rain ${row.effective_rain_mm ?? '—'} mm, deficit ${row.deficit_mm ?? '—'} mm`
+                            ).join(' · ')}
+                          </p>
+                          {strategy.components && (
+                            <p className="sub">
+                              Score components — water {(strategy.components.water * 100).toFixed(0)}%,
+                              nitrogen {(strategy.components.nitrogen * 100).toFixed(0)}%,
+                              resilience {(strategy.components.resilience * 100).toFixed(0)}%,
+                              soil {(strategy.components.soil * 100).toFixed(0)}%,
+                              economy {(strategy.components.economy * 100).toFixed(0)}%.
+                              {strategy.rotation_compatibility && (
+                                <> Rotation-compatibility multiplier {strategy.rotation_compatibility.factor.toFixed(2)} (family transitions {(strategy.rotation_compatibility.compat_avg * 100).toFixed(0)}%).</>
+                              )}
+                            </p>
+                          )}
+                          {strategy.drivers?.length > 0 && (
+                            <p className="sub">
+                              Main factors: {strategy.drivers.map(driver =>
+                                `${driver.component} (value ${(driver.value * 100).toFixed(0)}%, weight ${(driver.weight * 100).toFixed(0)}%, contributing ${(driver.contribution * 100).toFixed(1)} points)`
+                              ).join(' · ')}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       <p><strong>Strategy-specific risks and limitations:</strong> {strategy.limitations.join(' ')}</p>
                       {strategy.data_gaps.length > 0 && (
                         <div>
@@ -2087,8 +2131,8 @@ export default function App() {
           <div className="methodology-grid">
             <article>
               <span className="methodology-index">01</span>
-              <h3>Climate context</h3>
-              <p>NASA POWER provides gridded estimates for the selected point, not field-sensor readings. Reference ET₀ follows the FAO-56 Penman–Monteith method when source coverage is sufficient.</p>
+              <h3>Climate context and water balance</h3>
+              <p>NASA POWER provides gridded estimates for the selected point, not field-sensor readings. Reference ET₀ follows the FAO-56 Penman–Monteith method when daily source coverage is sufficient, and the same monthly ET₀ and rainfall drive each crop's seasonal deficit: ETc = Kc × ET₀, deficit = max(0, ETc − effective rainfall).</p>
               <a href="https://power.larc.nasa.gov/" target="_blank" rel="noreferrer">NASA POWER <span aria-hidden="true">↗</span></a>
             </article>
             <article>
@@ -2100,7 +2144,7 @@ export default function App() {
             <article>
               <span className="methodology-index">03</span>
               <h3>Rotation model</h3>
-              <p>Candidate sequences and weighted scores use prototype coefficients and assumptions. Some indicators are synthetic; results have not been validated as agronomic recommendations.</p>
+              <p>Suitability uses FAO-56 crop coefficients and stage lengths, crop-window temperatures against FAO EcoCrop bands, and botanical-family transition rules. EVI and soil-moisture inputs remain synthetic, and scores have not been validated against farm outcomes.</p>
               <Link to="/results">Inspect the model outputs <span aria-hidden="true">↗</span></Link>
             </article>
           </div>

@@ -747,15 +747,16 @@ class NasaClient:
             data_status = "synthetic"
 
         synthetic_fields = {
-            "sun_hours": 5.0,
             "evi": 0.42,
             "sm": 0.30,
             "cmip6": {"temp_mean_c": 18.6, "precipitation_mm": 0.0},
         }
+        # Humidity is reported only when NASA POWER RH2M actually resolved;
+        # a placeholder would be indistinguishable from a measurement.
         humidity_pct = (
             power_data["humidity_mean_pct"]
             if power_data and power_data["humidity_mean_pct"] is not None
-            else 45.0
+            else None
         )
         solar_radiation = (
             power_data["solar_radiation_mean_mj_m2_day"]

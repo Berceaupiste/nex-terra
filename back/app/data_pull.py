@@ -47,7 +47,6 @@ def pull() -> dict:
     }
     return payload
 
-
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     NASA_DIR.mkdir(parents=True, exist_ok=True)

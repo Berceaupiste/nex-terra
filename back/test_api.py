@@ -959,3 +959,4 @@ def test_cors_allows_configured_and_local_origins(
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == origin
+

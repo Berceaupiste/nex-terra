@@ -76,7 +76,6 @@ class RotationRequest(BaseModel):
             raise ValueError("At least one priority weight must be greater than zero")
         return value
 
-
 class ScenarioRequest(BaseModel):
     scenario_id: str = Field(default="default_scenario")
 

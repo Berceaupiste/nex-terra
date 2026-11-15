@@ -24,7 +24,6 @@ _cache: "OrderedDict[Tuple[float, float], Tuple[float, Optional[Dict[str, str]]]
 _lock = threading.Lock()
 _last_request_at = 0.0
 
-
 def reverse_geocode(lat: float, lon: float) -> Optional[Dict[str, str]]:
     """Return a named locality and its broader place context, if available."""
     global _last_request_at

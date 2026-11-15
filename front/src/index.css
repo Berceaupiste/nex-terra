@@ -397,6 +397,24 @@ a:hover { text-decoration: underline; }
 input[type=range] { width: 100%; }
 
 /* ---------- Explanation ---------- */
+.tie-notice {
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--grid);
+  border-left: 4px solid var(--brand);
+  background: #f8fafc;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+.tie-notice.is-tied {
+  border-left-color: #b45309;
+  background: #fffbeb;
+}
+.comparison-context.interpretation p {
+  margin: 8px 0 0;
+}
+
 .strategy-water {
   margin: 12px 0;
   padding: 12px 14px;

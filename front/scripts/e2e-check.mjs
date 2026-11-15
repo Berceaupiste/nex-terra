@@ -115,7 +115,7 @@ const confirmed = await evaluate(`(() => {
   return 'clicked'
 })()`)
 check('field form accepts coordinates', filled === 'filled', filled)
-check('duplicate-free confirm step', confirmed === 'clicked', confirmed)
+check('farm location accepted', confirmed === 'clicked', confirmed)
 await sleep(4000)
 
 // 2. Run the simulation.
@@ -142,9 +142,26 @@ const report = await evaluate(`(() => {
     cardsHaveDeficit: cards.length > 0 && cards.every(card => /Simplified deficit/.test(card)),
     cardsHaveNasaSource: cards.length > 0 && cards.every(card => /NASA POWER|fallback/.test(card)),
     hasNasaDecisionText: /NASA POWER is a decision input/.test(text),
+    hasTieNotice: /effectively tied|meaningfully separated/i.test(text),
+    hasDeficitExplanation: /The deficit is not an irrigation|deficits are large/i.test(text),
+    // Table headers are CSS-uppercased, so compare the header cells case-insensitively.
+    headers: [...document.querySelectorAll('.comp-table thead th')].map(th => th.textContent.trim()),
+    hasRevenueLabel: [...document.querySelectorAll('.comp-table thead th')]
+      .some(th => /illustrative gross revenue/i.test(th.textContent)),
+    hasDeficitColumn: [...document.querySelectorAll('.comp-table thead th')]
+      .some(th => /deficit vs rainfall/i.test(th.textContent)),
+    resilienceValues: [...document.querySelectorAll('.comp-table tbody tr')]
+      .map(tr => tr.children[6]?.textContent.trim()),
     hasError: /could not be completed|Something went wrong/i.test(text),
   }
 })()`)
+
+const resilienceNumbers = (report.resilienceValues || [])
+  .map((value) => Number.parseFloat(String(value).replace('%', '')))
+  .filter((value) => Number.isFinite(value))
+report.resilienceSpread = resilienceNumbers.length > 1
+  ? Math.round(((Math.max(...resilienceNumbers) - Math.min(...resilienceNumbers)) / 100) * 1000) / 1000
+  : 0
 
 const expectedCharts = ['ETc crop water demand', 'Rainfall deficit', 'Modelled resilience', 'Weighted prototype score']
 check('results render four charts', expectedCharts.every((t) => report.chartTitles.includes(t)), report.chartTitles.join(', '))
@@ -154,6 +171,13 @@ check('water budget exposes ETc/rain/deficit', report.cardsHaveDeficit === true)
 check('water budget states its data source', report.cardsHaveNasaSource === true)
 check('NASA role text is the corrected one', report.hasNasaDecisionText === true)
 check('no runtime error banner', report.hasError === false)
+check('tie notice explains score spread', report.hasTieNotice === true)
+check('deficit column is present', report.hasDeficitColumn === true)
+// The three options deliberately share crops, so their mean resilience is close;
+// back/test_agronomy.py asserts the wider winter-vs-summer difference (>0.05).
+check('resilience values are not identical', report.resilienceSpread > 0.003, `spread ${report.resilienceSpread}`)
+check('deficit/irrigation caveat is shown', report.hasDeficitExplanation === true)
+check('revenue labelled illustrative', report.hasRevenueLabel === true)
 
 ws.close()
 if (failures.length > 0) {

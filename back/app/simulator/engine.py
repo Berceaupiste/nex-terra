@@ -545,9 +545,20 @@ class Rotator:
                 climate.get("precipitation", 1.0),
                 climate.get("drought", 0.0),
                 evi=evi, sm=sm)
-            # Thermal suitability is the part of resilience that NASA POWER
-            # temperature actually drives; keep it multiplicative and reported.
-            res = round(res_scenario * (temp_suit if temp_suit is not None else 1.0), 3)
+            # Resilience combines three things that were previously flat:
+            #   scenario exposure (thermal + precipitation multipliers),
+            #   thermal suitability of the crop's own growing window, and
+            #   the share of that crop's water demand the rainfall covers.
+            # Without the last term every crop landed within ~3% of the others,
+            # because the scenario factors are crop-independent and the
+            # EVI/soil-moisture placeholders are constant.
+            deficit_share = (
+                min(1.0, deficit_mm / etc_mm) if etc_mm > 0 else 1.0
+            )
+            res = round(max(0.0, min(1.0,
+                res_scenario
+                * (temp_suit if temp_suit is not None else 1.0)
+                * (1.0 - 0.5 * deficit_share))), 3)
             prev_cover = (i > 0 and
                           self.crops.crop(crops[i - 1]).family == "cover")
             soil_prot = cur.soil_protection(prev, prev_cover, soil, winter=(i < 2))
@@ -565,6 +576,7 @@ class Rotator:
                 "water_source": water_source,
                 "temp_window_c": temp_window_c,
                 "climate_suitability": temp_suit,
+                "deficit_share": round(deficit_share, 3),
                 "ph_suitability": ph_suit,
                 "salinity_yield_factor": salt_yield,
                 "n_balance_kg": nb,
@@ -668,6 +680,8 @@ class Rotator:
             for contribution, key in drivers[:3]
         ]
         limitations = [
+            "Resilience and water partly overlap: a crop whose demand is unmet by "
+            "rainfall loses both water and resilience points",
             "ETc = Kc x ET0 with tabulated FAO-56 coefficients, not locally calibrated",
             "Deficit = max(0, ETc - effective rainfall) ignores soil water storage, "
             "irrigation efficiency and leaching",

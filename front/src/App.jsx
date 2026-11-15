@@ -25,7 +25,7 @@ const PRIORITY_LABELS = {
   nitrogen: 'Nitrogen balance',
   resilience: 'Climate resilience',
   soil: 'Soil protection',
-  economy: 'Economic potential',
+  economy: 'Illustrative gross revenue',
 }
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const OBSERVED_FIELD_ISSUES = [
@@ -155,6 +155,44 @@ function PageStepNavigation({ currentPage }) {
         ? <Link className="step-next" to={next.path}>{next.label} <span aria-hidden="true">→</span></Link>
         : <span className="step-complete">End of the journey</span>}
     </nav>
+  )
+}
+
+function evidenceScopeLabel(crop, field, documentedRegions) {
+  // One coherent sentence per crop: never claim national documentation and
+  // region-specific evidence at the same time when only one of them holds.
+  if (crop.national_status === 'group_only') {
+    return 'Evidence covers the crop group, not this crop specifically.'
+  }
+  if (crop.national_status !== 'documented') {
+    return 'National presence is not verified by the cited sources.'
+  }
+  if (documentedRegions.length === 0) {
+    return 'Nationally documented, but the cited source gives no regional breakdown, so regional availability is unverified.'
+  }
+  const selected = field?.region_code
+  const inRegion = documentedRegions.includes(field?.region_name) || documentedRegions.includes(selected)
+  if (inRegion) {
+    return `Nationally documented and named in the cited source for the selected region (${documentedRegions.join(', ')}).`
+  }
+  return `Nationally documented; the cited source names ${documentedRegions.join(', ')} but not the selected region. That is a data gap, not evidence of absence.`
+}
+
+function TieNotice({ rows }) {
+  if (!rows || rows.length < 2) return null
+  const scores = rows.map(row => row.score)
+  const best = Math.max(...scores)
+  const worst = Math.min(...scores)
+  const spread = best - worst
+  const tied = spread <= 0.05
+  return (
+    <div className={`tie-notice${tied ? ' is-tied' : ''}`} role="status">
+      <strong>{tied ? 'These options are effectively tied.' : 'These options are meaningfully separated.'}</strong>{' '}
+      The spread is {spread.toFixed(3)} points ({((spread / best) * 100).toFixed(1)}% of the highest score)
+      {tied
+        ? '. Differences this small come from unvalidated coefficients and fallback placeholders, not from measured field performance, so treat them as equivalent and choose on practical grounds such as labour, machinery, market access and water availability.'
+        : '. Even so, the ranking is a prototype heuristic and not a validated recommendation.'}
+    </div>
   )
 }
 
@@ -2010,7 +2048,7 @@ export default function App() {
                 <div className="comp-table-wrap">
                   <table className="comp-table">
                     <thead><tr>
-                      <th>Cross-scenario rank</th><th>Strategy in selected scenario</th><th>Crops</th><th>ETc crop water demand (mm)</th><th>Prototype N balance (kg/ha)</th><th>Modelled resilience</th><th>Modelled soil protection</th><th>Prototype gross revenue assumption (MAD/ha)</th><th>Prototype score</th>
+                      <th>Cross-scenario rank</th><th>Strategy in selected scenario</th><th>Crops</th><th>ETc crop water demand (mm)</th><th>Seasonal deficit vs rainfall (mm)</th><th>Prototype N balance (kg/ha)</th><th>Modelled resilience</th><th>Modelled soil protection</th><th>Illustrative gross revenue — not a net margin (MAD/ha)</th><th>Prototype score</th>
                     </tr></thead>
                     <tbody>
                       {activeRows.map(c => (
@@ -2019,6 +2057,7 @@ export default function App() {
                           <td><strong>{c.strategy_label}</strong></td>
                           <td>{c.rotation.join(' · ')}</td>
                           <td>{c.water_total_mm.toFixed(0)}</td>
+                          <td>{Number.isFinite(c.deficit_total_mm) ? c.deficit_total_mm.toFixed(0) : '—'}</td>
                           <td>{c.n_balance_kg.toFixed(1)}</td>
                           <td>{(c.resilience_avg * 100).toFixed(0)}%</td>
                           <td>{(c.soil_protection_avg * 100).toFixed(0)}%</td>
@@ -2031,6 +2070,44 @@ export default function App() {
                 </div>
 
                 <div className="sub" style={{ marginTop: 14, marginBottom: 6 }}>Highest prototype score in this scenario (not a recommendation): <strong>{activeComp?.strategy_label || '—'}</strong></div>
+
+                <TieNotice rows={activeRows} />
+
+                <section className="comparison-context interpretation" aria-label="Reading the water and resilience numbers">
+                  <h3>Reading the water and resilience numbers</h3>
+                  <p>
+                    <strong>Why the deficits are large.</strong> ETc is crop demand over the whole
+                    growing window (three seasons), and it is compared with effective rainfall in the
+                    same window. In Casablanca-Settat the winter window supplies roughly 220 mm of
+                    effective rain against roughly 350 mm of winter-cereal demand, so a 130 mm
+                    seasonal deficit is normal — and summer windows are almost fully deficient
+                    because the rain falls in winter. 1 mm over 1 ha is 10 m³, so a 500 mm deficit
+                    over three seasons is about 5,000 m³/ha of unmet demand.
+                  </p>
+                  <p>
+                    <strong>What that does and does not mean.</strong> The deficit is not an irrigation
+                    requirement. The model assumes rainfed supply: it does not know your water rights,
+                    irrigation system, efficiency, soil water storage, runoff, capillary rise or
+                    leaching, and it does not schedule irrigation. Many Moroccan field crops are
+                    irrigated in practice; a large deficit therefore flags dependence on irrigation or
+                    on stored soil moisture, not a proven need for that exact volume.
+                  </p>
+                  <p>
+                    <strong>Why resilience differs between options.</strong> Resilience combines the
+                    chosen scenario's exposure (warming, precipitation change, drought index), the
+                    crop-window temperature against its optimal band, and the share of that crop's own
+                    demand that rainfall fails to cover. Earlier versions used only scenario-level
+                    factors, which is why every option reported near-identical resilience. Because the
+                    deficit term appears in both resilience and water, those two components are
+                    correlated, not independent evidence.
+                  </p>
+                  <p>
+                    <strong>Revenue is illustrative.</strong> The gross-revenue figure is a rough
+                    per-hectare turnover assumption for the crop, not a net margin: input costs,
+                    labour, water charges, subsidies, storage and market prices are all excluded, and
+                    it has not been validated against Moroccan farm accounts.
+                  </p>
+                </section>
 
                 <div className="explanations">
                   {(comparisonA.strategies || []).map(strategy => (
@@ -2045,16 +2122,9 @@ export default function App() {
                             .filter(Boolean)
                           return (
                             <li key={`${crop.code}-${index}`}>
-                              <strong>{crop.name}</strong> — {crop.national_status === 'documented'
-                                ? 'nationally documented'
-                                : crop.national_status === 'group_only'
-                                  ? 'group-level evidence only'
-                                  : 'national presence not verified'}
-                              . {crop.evidence_note}
+                              <strong>{crop.name}</strong> — {evidenceScopeLabel(crop, field, documentedRegions)}
                               {' '}
-                              {documentedRegions.length
-                                ? `Named regions: ${documentedRegions.join(', ')}.`
-                                : 'Region-specific availability is unknown.'}
+                              {crop.evidence_note}
                               {crop.source_ids.map(sourceId => {
                                 const source = cropSources[sourceId]
                                 return source && (

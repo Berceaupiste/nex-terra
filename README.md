@@ -287,15 +287,43 @@ sequence positions are not regional planting calendars.
 
 ```
 components = {
-  water:      1 - mean_seasonal_deficit / 600 mm          (NASA ET0 + rainfall)
+  water:      1 - mean_seasonal_deficit / 600 mm                  (NASA ET0 + rainfall)
   nitrogen:   0.5 + 0.5 x mean N balance / 100 kg/ha
-  resilience: scenario resilience x thermal suitability    (NASA temperature)
-  soil:       soil protection x pH suitability             (soil pH)
-  economy:    crop revenue assumptions / 25000
+  resilience: scenario exposure x thermal suitability
+              x (1 - 0.5 x deficit_share)                          (NASA ET0, temperature, rainfall)
+  soil:       soil protection x pH suitability                     (soil pH)
+  economy:    illustrative gross revenue assumption / 25000
 }
 weighted = sum(normalized priority weight x component)
 score    = weighted x (0.85 + 0.15 x mean family-transition compatibility)
 ```
+
+`deficit_share = deficit / ETc` for that crop and season. Resilience includes it
+because the scenario factors alone are crop-independent: without this term every
+crop landed within about 3% of every other, so the metric could not separate
+options. The cost is that **water and resilience are correlated** — a crop whose
+demand the rainfall does not meet loses points in both. Treat them as one signal
+about water, not two independent ones.
+
+### Reading the numbers
+
+- **Scores are often effectively tied.** The three generated options deliberately
+  share most of their crops, so differences of 0.003-0.01 points are typical. The
+  results page states the spread explicitly and says when the options should be
+  treated as equivalent; choose between them on practical grounds (labour,
+  machinery, market access, water rights), not on a 0.005 score difference.
+- **Large deficits are expected, not a bug.** ETc covers the whole growing window
+  and is compared with rainfall in the same window. Winter windows in
+  Casablanca-Settat yield roughly 220 mm of effective rain against roughly 350 mm
+  of cereal demand, and summer windows are almost entirely deficient. 1 mm over
+  1 ha is 10 m³, so 500 mm over three seasons is about 5,000 m³/ha of unmet demand.
+- **The deficit is not an irrigation requirement.** The model assumes rainfed
+  supply: no water rights, irrigation system, efficiency, soil water storage,
+  runoff, capillary rise, leaching or scheduling. A large deficit flags dependence
+  on irrigation or stored soil moisture.
+- **Revenue is illustrative gross revenue.** It is a rough per-hectare turnover
+  assumption, not a net margin: input costs, labour, water charges, subsidies,
+  storage and market prices are excluded.
 
 Agricultural validation status: the arithmetic, unit conversions and API
 plumbing are unit-tested (`back/test_agronomy.py`), and the Python and browser

@@ -343,7 +343,13 @@ export function scoreRotation(cropsCodes, soil, climate, nasa = null, priorityWe
       evi,
       sm,
     )
-    const res = round(resScenario * (tempSuit ?? 1.0), 3)
+    // Resilience = scenario exposure x thermal suitability x how much of the
+    // crop's water demand the rainfall covers (see the Python engine comment).
+    const deficitShare = etcMm > 0 ? Math.min(1.0, deficitMm / etcMm) : 1.0
+    const res = round(
+      clamp01(resScenario * (tempSuit ?? 1.0) * (1.0 - 0.5 * deficitShare)),
+      3,
+    )
     const prevCover = i > 0 && crop(cropsCodes[i - 1]).family === 'cover'
     const soilProt = cur.soilProtection(prev, prevCover, profile)
     const soilScored = round(soilProt * (phSuit ?? 1.0), 3)
@@ -359,6 +365,7 @@ export function scoreRotation(cropsCodes, soil, climate, nasa = null, priorityWe
       water_source: waterSource,
       temp_window_c: tempWindowC,
       climate_suitability: tempSuit,
+      deficit_share: roundHalfEven(deficitShare, 3),
       ph_suitability: phSuit,
       salinity_yield_factor: saltYield,
       n_balance_kg: nb,
@@ -474,6 +481,8 @@ export function scoreRotation(cropsCodes, soil, climate, nasa = null, priorityWe
         'and excluded from the score.',
     },
     limitations: [
+      'Resilience and water partly overlap: a crop whose demand is unmet by ' +
+        'rainfall loses both water and resilience points',
       'ETc = Kc x ET0 with tabulated FAO-56 coefficients, not locally calibrated',
       'Deficit = max(0, ETc - effective rainfall) ignores soil water storage, ' +
         'irrigation efficiency and leaching',

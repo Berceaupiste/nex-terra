@@ -211,3 +211,24 @@ def test_browser_engine_coefficients_match_the_python_table():
     js_data = json.loads(match.group(1))
     py_data = json.loads(AGRO_JSON.read_text(encoding="utf-8"))
     assert js_data["crops"] == py_data["crops"]
+
+
+def test_resilience_varies_by_crop_and_season():
+    """Regression: resilience used to be within ~3% for every crop.
+
+    The scenario factors are crop-independent, so resilience now also includes
+    the share of the crop's own water demand that rainfall fails to cover.
+    """
+    rotator = sim.Rotator()
+    nasa = _flat_series(100.0, 2.0)
+    prio = PRIORITIES
+    winter = rotator.score_rotation(["barley"] * 3, SOIL, agronomy_climate(),
+                                    nasa=nasa, priority_weights=prio)
+    summer = rotator.score_rotation(["tomato"] * 3, SOIL, agronomy_climate(),
+                                    nasa=nasa, priority_weights=prio)
+    winter_season = winter["seasons"][0]
+    summer_season = summer["seasons"][0]
+
+    assert winter_season["deficit_share"] < summer_season["deficit_share"]
+    assert winter_season["resilience"] > summer_season["resilience"] + 0.05
+    assert winter["components"]["resilience"] - summer["components"]["resilience"] > 0.05

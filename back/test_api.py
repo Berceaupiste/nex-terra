@@ -299,7 +299,6 @@ def test_nasa_endpoint_uses_selected_coordinates(client, monkeypatch):
     assert seen == {"lat": 30.25, "lon": -9.2}
     assert response.json() == seen
 
-
 def test_nasa_endpoint_rejects_coordinates_outside_morocco_envelope(client):
     response = client.get("/api/nasa", params={"lat": 40, "lon": -6})
     assert response.status_code == 422

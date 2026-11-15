@@ -131,6 +131,39 @@ Never put a Supabase secret/service-role key in the frontend or commit real
 credentials. The app is an exploratory prototype: its rotation scores and
 crop-water assumptions are not validated agronomic advice.
 
+## Checks
+
+Run these before publishing the Pages build. They cover the arithmetic, the API
+contract, and the rendered results page (charts and water-budget cards), so a
+change to the scoring model cannot silently break what visitors see.
+
+```bash
+# 1. Backend: agronomy arithmetic + API contract (59 tests)
+cd back && python3 -m pytest -q
+
+# 2. Frontend build
+cd front && npm ci && npm run build
+
+# 3. Static deploy layout: copy the build to the repo root
+cd .. && rm -rf assets api \
+  && cp front/dist/index.html index.html \
+  && cp -r front/dist/assets assets \
+  && cp -r front/dist/api api
+
+# 4. End-to-end: real clicks against the built site
+#    (serve the repo root at /nex-terra/ and start Chromium with CDP)
+mkdir -p /tmp/site && ln -sfn "$PWD" /tmp/site/nex-terra
+python3 -m http.server 8131 --directory /tmp/site &
+chromium --headless=new --no-sandbox --remote-debugging-port=9222 \
+  --remote-allow-origins=* http://127.0.0.1:8131/nex-terra/ &
+node front/scripts/e2e-check.mjs http://127.0.0.1:8131/nex-terra/
+```
+
+The end-to-end script sets a field on `#/data`, runs the simulation, and
+asserts the results page shows four charts, three strategies, a water budget
+with ETc/effective rainfall/deficit, the corrected NASA role statement, and no
+error banner. It needs no extra npm packages.
+
 ## Licensing and acknowledgements
 
 Original NEX TERRA source code is licensed under Apache License 2.0; see

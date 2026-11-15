@@ -1,0 +1,50 @@
+{
+ "rotation_names": {
+  "current": "Your current rotation (baseline)",
+  "suggested_1": "Suggested option 1 — closest match to your priorities",
+  "suggested_2": "Suggested option 2 — alternative crop mix",
+  "suggested_3": "Suggested option 3 — alternative crop mix"
+ },
+ "current_rotation": [
+  "winter_wheat",
+  "winter_wheat",
+  "winter_wheat"
+ ],
+ "scenarios": [
+  {
+   "id": "historical",
+   "label": "Historical baseline",
+   "temp_shift": 0.0,
+   "precipitation": 1.0,
+   "drought": 0.0
+  },
+  {
+   "id": "mild_warming_wet",
+   "label": "Mild warming + wetter",
+   "temp_shift": 1.0,
+   "precipitation": 1.05,
+   "drought": 0.0
+  },
+  {
+   "id": "severe_drying",
+   "label": "Severe drying",
+   "temp_shift": 1.8,
+   "precipitation": 0.78,
+   "drought": 0.35
+  },
+  {
+   "id": "hot_wet",
+   "label": "Hot + wet",
+   "temp_shift": 2.2,
+   "precipitation": 1.12,
+   "drought": 0.1
+  }
+ ],
+ "priorities": {
+  "water": 0.2,
+  "nitrogen": 0.15,
+  "resilience": 0.25,
+  "soil": 0.2,
+  "economy": 0.2
+ }
+}

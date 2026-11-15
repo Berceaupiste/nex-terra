@@ -8,6 +8,10 @@ __pycache__/
 node_modules/
 front/dist/
 
+# Local deployment keys (SSH private key used for publishing)
+nex_terra_id
+nex_terra_id.pub
+
 # Local environment files; keep the example templates
 .env
 .env.*

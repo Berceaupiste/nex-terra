@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AppConfig(BaseSettings):
@@ -32,9 +32,7 @@ class AppConfig(BaseSettings):
     default_water_cap_mm: float = 1200.0
     optimization_water_cap_factor: float = 0.90
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 config = AppConfig()

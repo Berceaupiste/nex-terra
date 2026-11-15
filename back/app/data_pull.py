@@ -11,9 +11,11 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+APP_DIR = Path(__file__).resolve().parent
+BASE_DIR = APP_DIR.parent
+sys.path.insert(0, str(APP_DIR))
 
 from nasa.client import NasaClient, NasaConfig  # noqa: E402
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -22,6 +23,26 @@ log = logging.getLogger("nex-terra")
 
 
 def create_app() -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        log.info("NEX TERRA starting on %s:%s", config.config.host, config.config.port)
+        log.info("data dir: %s", DATA_DIR)
+        try:
+            with open(DATA_DIR / "config.json", encoding="utf-8") as f:
+                cfg = json.load(f)
+            app.state.field_config = cfg.get("field", {})
+            app.state.scenarios = cfg.get("scenarios", app.state.field_config.get(
+                "scenarios", []))
+        except FileNotFoundError:
+            app.state.field_config = {}
+            app.state.scenarios = []
+        except json.JSONDecodeError as e:
+            log.warning("config.json unreadable: %s", e)
+            app.state.field_config = {}
+            app.state.scenarios = []
+        yield
+        log.info("NEX TERRA shutting down")
+
     app = FastAPI(
         title="NEX TERRA — Rotation Resilience Engine",
         description=(
@@ -32,6 +53,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     app.state.config = config
@@ -77,29 +99,6 @@ def create_app() -> FastAPI:
             if index_file.exists():
                 return FileResponse(index_file)
         return FileResponse(BASE_DIR / "public" / "index.html")
-
-    # ---- startup ----------------------------------------------------------- #
-    @app.on_event("startup")
-    async def _startup() -> None:
-        log.info("NEX TERRA starting on %s:%s", config.config.host, config.config.port)
-        log.info("data dir: %s", DATA_DIR)
-        try:
-            with open(DATA_DIR / "config.json", encoding="utf-8") as f:
-                cfg = json.load(f)
-            app.state.field_config = cfg.get("field", {})
-            app.state.scenarios = cfg.get("scenarios", app.state.field_config.get(
-                "scenarios", []))
-        except FileNotFoundError:
-            app.state.field_config = {}
-            app.state.scenarios = []
-        except json.JSONDecodeError as e:
-            log.warning("config.json unreadable: %s", e)
-            app.state.field_config = {}
-            app.state.scenarios = []
-
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        log.info("NEX TERRA shutting down")
 
     return app
 

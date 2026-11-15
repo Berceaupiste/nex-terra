@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import L from 'leaflet'
+import heroArtworkUrl from './assets/nex-terra-hero.jpg'
+import { apiRequest as api } from './lib/apiClient.js'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import FarmAccountPanel from './FarmAccountPanel'
 import SimulationHistoryPanel from './SimulationHistoryPanel'
@@ -88,18 +90,8 @@ function normalizeFarmAssessment(value) {
 }
 
 // ---- helpers ----
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, '') || ''
-
-async function api(path, opts) {
-  const res = await fetch(`${API_BASE_URL}${path}`, opts)
-  if (!res.ok) {
-    let msg = `Request failed: ${res.status}`
-    try { msg = (await res.json()).detail || msg }
-    catch (_) {}
-    throw new Error(msg)
-  }
-  return res.json()
-}
+// `api` talks to the FastAPI backend in development, or to the baked static
+// payloads plus the browser engine in the published GitHub Pages build.
 
 function sourceLabel(source) {
   if (!source) return 'provenance unavailable'
@@ -1190,7 +1182,7 @@ export default function App() {
       <header className="header" id="top">
         <img
           className="hero-artwork"
-          src="/nex-terra-hero.jpg"
+          src={heroArtworkUrl}
           alt="NEX TERRA — Adapting farms with NASA data. Smart rotation, resilient agriculture and a sustainable future. Satellite data, crop rotation, water optimization and climate resilience above an agricultural field."
           loading="eager"
           decoding="async"

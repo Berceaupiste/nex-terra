@@ -50,7 +50,7 @@ a:hover { text-decoration: underline; }
   background:
     linear-gradient(90deg, rgba(5, 24, 42, .78), rgba(5, 24, 42, .16)),
     linear-gradient(0deg, rgba(5, 24, 42, .68), transparent 68%),
-    url('/nex-terra-hero.jpg') center top / cover no-repeat;
+    url('./assets/nex-terra-hero.jpg') center top / cover no-repeat;
   box-shadow: 0 20px 48px rgba(8, 39, 61, .22);
   color: #fff;
 }
@@ -1699,7 +1699,7 @@ html.reveal-ready .journey-steps li:nth-child(3) { transition-delay: .16s; }
   inset: 0;
   background:
     linear-gradient(100deg, rgba(10, 30, 24, .93) 0%, rgba(12, 34, 27, .78) 58%, rgba(12, 34, 27, .48) 100%),
-    url('/nex-terra-hero.jpg') center 62% / cover;
+    url('./assets/nex-terra-hero.jpg') center 62% / cover;
   content: "";
 }
 .team-section .section-lead h2,
@@ -1735,7 +1735,7 @@ html.reveal-ready .journey-steps li:nth-child(3) { transition-delay: .16s; }
   inset: 0;
   background:
     linear-gradient(100deg, rgba(9, 27, 21, .96), rgba(11, 33, 25, .88)),
-    url('/nex-terra-hero.jpg') center 78% / cover;
+    url('./assets/nex-terra-hero.jpg') center 78% / cover;
   content: "";
 }
 .site-footer .footer-brand-block { border-bottom: 1px solid rgba(247, 245, 235, .25); }

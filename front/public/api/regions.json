@@ -1,0 +1,65 @@
+{
+ "regions": [
+  {
+   "code": "tanger-tetouan-al-hoceima",
+   "name": "Tangier-Tetouan-Al Hoceima"
+  },
+  {
+   "code": "oriental",
+   "name": "Oriental"
+  },
+  {
+   "code": "fes-meknes",
+   "name": "Fes-Meknes"
+  },
+  {
+   "code": "rabat-sale-kenitra",
+   "name": "Rabat-Sale-Kenitra"
+  },
+  {
+   "code": "beni-mellal-khenifra",
+   "name": "Beni Mellal-Khenifra"
+  },
+  {
+   "code": "casablanca-settat",
+   "name": "Casablanca-Settat"
+  },
+  {
+   "code": "marrakech-safi",
+   "name": "Marrakech-Safi"
+  },
+  {
+   "code": "draa-tafilalet",
+   "name": "Draa-Tafilalet"
+  },
+  {
+   "code": "souss-massa",
+   "name": "Souss-Massa"
+  },
+  {
+   "code": "guelmim-oued-noun",
+   "name": "Guelmim-Oued Noun"
+  },
+  {
+   "code": "laayoune-sakia-el-hamra",
+   "name": "Laayoune-Sakia El Hamra"
+  },
+  {
+   "code": "dakhla-oued-ed-dahab",
+   "name": "Dakhla-Oued Ed-Dahab"
+  }
+ ],
+ "source": {
+  "name": "Morocco Directorate General of Local Authorities",
+  "url": "https://www.collectivites-territoriales.gov.ma/",
+  "note": "The selected region is user-provided and checked against the mapped administrative boundary data."
+ },
+ "boundary_source": {
+  "name": "geoBoundaries GB Open Morocco ADM1",
+  "year": 2017,
+  "source": "OpenStreetMap, Wambacher",
+  "url": "https://github.com/wmgeolab/geoBoundaries/tree/9469f09/releaseData/gbOpen/MAR/ADM1",
+  "license": "Open Data Commons Open Database License 1.0",
+  "license_url": "https://opendatacommons.org/licenses/odbl/1-0/"
+ }
+}

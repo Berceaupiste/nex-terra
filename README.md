@@ -6,6 +6,7 @@ model's assumptions and data limitations. The interface is organized as a
 guided sequence of separate pages: **Home**, **About**, **Agricultural Data**,
 **Simulation**, **Results**, **Methodology**, and **Team**.
 
+
 Built with:
 
 * **Backend**: FastAPI + Uvicorn, Python (`back/`)

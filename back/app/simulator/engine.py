@@ -12,29 +12,35 @@ Engine:
   * A scikit-learn fallback model that re-scores using a fitted linear model from
       historical field-rotation observations.
   * A SciPy optimizer (differential evolution) that searches for the best
-      rotation under a water cap, then a second pass under each future climate
-      scenario (NEX-GDDP-CMIP6 deltas).
+      rotation under a water cap and illustrative climate scenarios.
 
-All numbers are deterministic and synthetic (no live NASA API calls in this
-prototype). Climate "future projections" are simulated as uniform shifts of
-temperature and precipitation, which is exactly how the real NEX-GDDP-CMIP6
-delta files are used (here with reduced resolution).
+Rotation scores are deterministic prototype estimates. NASA POWER weather
+values are exposed as context but do not calibrate this engine's scores.
+Climate scenarios are illustrative uniform shifts, not validated regional
+projections.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, field
+from itertools import product
 from typing import Iterable, List, Optional
 
 import numpy as np
 from scipy.optimize import differential_evolution
 
+from ..crop_catalog import CROP_CATALOG
+from ..models import DEFAULT_PRIORITY_WEIGHTS
+
 # --------------------------------------------------------------------------- #
 #  Paths and seed data
 # --------------------------------------------------------------------------- #
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 DATA_DIR = os.path.join(BASE_DIR, "data")
 SOILGRIDS_JSON = os.path.join(DATA_DIR, "soilgrids.json")
 CROP_JSON = os.path.join(DATA_DIR, "crops.json")
@@ -94,16 +100,26 @@ DEFAULT_SEAS = {
 
 # Crop family / nutrient strategy
 DEFAULT_FAMILIES = {
-    "cereal": "cereal",
-    "legume": "legume",
-    "root": "root",
-    "tuber": "tuber",
-    "vegetable": "vegetable",
-    "oilseed": "oilseed",
-    "cinquefoil": "legume",  # alfalfa / clover = perennial legume
-    "cover": "cover",
+    "winter_wheat": "cereal",
+    "barley": "cereal",
+    "faba_beans": "legume",
+    "chickpeas": "legume",
+    "lentils": "legume",
+    "sunflower": "oilseed",
+    "sugar_beet": "root",
+    "sweet_potato": "tuber",
+    "potato": "tuber",
+    "tomato": "vegetable",
+    "onion": "vegetable",
+    "carrot": "root",
+    "alfalfa": "cover",
+    "clover": "cover",
+    "lettuce": "vegetable",
     "maize": "cereal",
     "sorghum": "cereal",
+    "pulses": "legume",
+    "cereal_mix": "cereal",
+    "fallow": "fallow",
 }
 
 # Rotation compatibility matrix (transition probability 0..1, also encodes
@@ -354,7 +370,7 @@ class Crop:
         """
         thermal = 1.0 - 0.04 * abs(temp_shift)
         water = precip_delta * (1.0 - 0.2 * self.stress_sensitivity)
-        # satellite-derived vegetation + soil moisture compound drought stress
+        # Vegetation and soil-moisture inputs contribute to compound drought stress.
         veg_sound = (evi if evi is not None else 0.7)
         soil_wet = (sm if sm is not None else 0.4)
         drought_penalty = (1.0 - 0.35 * drought) * (0.7 + 0.3 * veg_sound) * (0.8 + 0.2 * soil_wet)
@@ -461,13 +477,19 @@ class Rotator:
         climate: dict,
         water_cap_mm: Optional[float] = None,
         nasa: Optional[dict] = None,
+        priority_weights: Optional[dict] = None,
     ) -> dict:
-        """Score a rotation against one climate state, optionally using real
-        satellite-derived observations (POWER/GPM/MODIS/SMAP/NEX-GDDP-CMIP6).
+        """Score a rotation against one climate state and weighted priorities.
 
-        nasa: dict with temp_mean_c, rainfall_mm_tot, sun_hours, evi, sm,
-              cmip6_temp_delta_c. When absent, behavior is identical to before.
+        NASA fields are model inputs only when supplied; their provenance is
+        returned separately by the data client.
         """
+        if not crops:
+            raise ValueError("A rotation must contain at least one crop")
+        unknown_crops = [code for code in crops if self.crops.crop(code) is None]
+        if unknown_crops:
+            raise ValueError(f"Unknown crop code(s): {', '.join(unknown_crops)}")
+
         n = len(crops)
         season_metrics = []
         total_water = 0.0
@@ -520,15 +542,43 @@ class Rotator:
         # economy per unit water (MAD / m3) - a dryland efficiency metric
         econ_per_water = round(total_econ / total_water, 1) if total_water > 0 else 0.0
 
-        # Trade-off weighting (user priorities)
-        w_water, w_n, w_res, w_soil, w_econ = 0.20, 0.15, 0.20, 0.15, 0.30
+        weights = (
+            DEFAULT_PRIORITY_WEIGHTS
+            if priority_weights is None else priority_weights
+        )
+        unknown_weights = set(weights) - set(DEFAULT_PRIORITY_WEIGHTS)
+        if unknown_weights:
+            raise ValueError(
+                f"Unknown priority keys: {', '.join(sorted(unknown_weights))}"
+            )
+        normalized_weights = {}
+        for key in DEFAULT_PRIORITY_WEIGHTS:
+            value = float(weights.get(key, 0.0))
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Priority weights must be finite and non-negative")
+            normalized_weights[key] = value
+        weight_total = sum(normalized_weights.values())
+        if weight_total <= 0:
+            raise ValueError("At least one priority weight must be greater than zero")
+        normalized_weights = {
+            key: value / weight_total
+            for key, value in normalized_weights.items()
+        }
+
         # water scarcity penalty
         water_penalty = min(1.0, total_water / 1600.0)
-        score = (w_water * (1.0 - water_penalty) +
-                 w_n * (0.5 + 0.5 * (total_n_balance / 100.0)) +
-                 w_res * (total_resilience / n) +
-                 w_soil * (total_soil / n) +
-                 w_econ * (total_econ / n / 25000.0))
+        clamp = lambda value: max(0.0, min(1.0, value))
+        components = {
+            "water": clamp(1.0 - water_penalty),
+            "nitrogen": clamp(0.5 + 0.5 * (total_n_balance / n / 100.0)),
+            "resilience": clamp(total_resilience / n),
+            "soil": clamp(total_soil / n),
+            "economy": clamp(total_econ / n / 25000.0),
+        }
+        score = sum(
+            normalized_weights[key] * components[key]
+            for key in normalized_weights
+        )
 
         return {
             "rotations": len(crops),
@@ -542,6 +592,10 @@ class Rotator:
             "economic_potential_avg": round(total_econ / n, 1),
             "econ_per_water_mad_m3": econ_per_water,
             "score": round(score, 4),
+            "priority_weights": {
+                key: round(value, 4)
+                for key, value in normalized_weights.items()
+            },
             "nasa": {
                 "temp_mean_c": round(observed_temp_c, 2),
                 "rainfall_mm_tot": round(observed_rain_mm, 1),
@@ -550,10 +604,91 @@ class Rotator:
                 "evi": round(evi, 3),
                 "sm": round(sm, 3),
                 "cmip6_temp_delta_c": round(cmip6_temp_shift, 2),
+                "_synthetic": (
+                    bool(nasa.get("_synthetic", True)) if nasa else True
+                ),
+                "data_status": (
+                    nasa.get("data_status", "synthetic")
+                    if nasa else "synthetic"
+                ),
+                "source_status": (
+                    nasa.get("source_status", {}) if nasa else {}
+                ),
+                "lat": nasa.get("lat") if nasa else None,
+                "lon": nasa.get("lon") if nasa else None,
+                "observed_window_years": (
+                    nasa.get("observed_window_years") if nasa else None
+                ),
+                "coverage": nasa.get("coverage", {}) if nasa else {},
+                "source_datasets": (
+                    nasa.get("source_datasets", []) if nasa else []
+                ),
+                "source_note": (
+                    nasa.get(
+                        "source_note",
+                        "NASA data provenance unavailable; treated as synthetic.",
+                    )
+                    if nasa else "Engine defaults are synthetic demonstration values."
+                ),
             },
             "seasons": season_metrics,
             "water_cap_factor": water_penalty,
         }
+
+    def recommend_rotations(
+        self,
+        soil: SoilProfile,
+        climate: dict,
+        priority_weights: dict,
+        nasa: Optional[dict] = None,
+        current_rotation: Optional[List[str]] = None,
+        count: int = 3,
+    ) -> List[dict]:
+        """Return diverse, score-ranked candidates from supported annual crops."""
+        pool = [
+            item["code"] for item in CROP_CATALOG["crops"]
+            if item["rotation_eligible"] and self.crops.crop(item["code"])
+        ]
+        family_by_code = {
+            code: self.crops.crop(code).family
+            for code in pool
+        }
+        candidates = []
+        for rotation in product(pool, repeat=3):
+            families = {family_by_code[code] for code in rotation}
+            if len(families) != 3:
+                continue
+            if current_rotation and set(rotation) == set(current_rotation):
+                continue
+            candidates.append(self.score_rotation(
+                list(rotation),
+                soil,
+                climate,
+                nasa=nasa,
+                priority_weights=priority_weights,
+            ))
+
+        candidates.sort(
+            key=lambda result: (-result["score"], tuple(result["rotation"]))
+        )
+        selected = []
+        selected_rotations = set()
+        for maximum_shared_crops in (1, 2, 3):
+            for candidate in candidates:
+                rotation = tuple(candidate["rotation"])
+                if rotation in selected_rotations:
+                    continue
+                if any(
+                    len(set(rotation) & set(previous["rotation"])) > maximum_shared_crops
+                    for previous in selected
+                ):
+                    continue
+                selected.append(candidate)
+                selected_rotations.add(rotation)
+                if len(selected) == count:
+                    return selected
+
+        return selected
 
     # -- scikit-learn fallback model -------------------------------------- #
     def fit(self, historical: Optional[Iterable[dict]] = None):
@@ -592,43 +727,32 @@ class Rotator:
     # -- optimization ------------------------------------------------------- #
     def optimize(self, soil: SoilProfile, climate: dict,
                  priority_weights: dict, max_seasons: int = 3,
-                 water_cap_mm: Optional[float] = None) -> dict:
+                 water_cap_mm: Optional[float] = None,
+                 nasa: Optional[dict] = None) -> dict:
         """Search crop lists (3, 4 or 5 seasons) for a rotation that maximises the
         weighted utility under the given climate and water cap."""
         pool = [
             "winter_wheat", "barley", "faba_beans", "chickpeas", "lentils",
             "sunflower", "sugar_beet", "sweet_potato", "potato", "tomato",
-            "onion", "carrot", "maize", "sorghum", "pulses", "cereal_mix",
+            "onion", "carrot", "maize", "sorghum",
         ]
-        # priority weights (normalized user priorities over E,N,R,S,K)
-        w = [0.0, 0.0, 0.0, 0.0, 0.0]
-        for k, v in priority_weights.items():
-            if k == "water":
-                w[0] = v
-            elif k == "nitrogen":
-                w[1] = v
-            elif k == "resilience":
-                w[2] = v
-            elif k == "soil":
-                w[3] = v
-            elif k == "economy":
-                w[4] = v
-        total = sum(w) or 1.0
-        w = [x / total for x in w]
-
         bounds = [(0, len(pool) - 1)] * max_seasons
 
         def wrapped(x):
             idxs = [int(round(v)) for v in x]
             codes = [pool[i] for i in idxs]
-            res = self.score_rotation(codes, soil, climate)
+            res = self.score_rotation(
+                codes, soil, climate, nasa=nasa,
+                priority_weights=priority_weights,
+            )
             if "score" not in res:
                 return -1e9
-            base = res["score"]
+            utility = res["score"]
             # penalize exceeding a water cap
-            if water_cap_mm and res["water_total_mm"] > water_cap_mm:
-                base *= 1.0 - (res["water_total_mm"] - water_cap_mm) / water_cap_mm
-            return base
+            if water_cap_mm and water_cap_mm > 0:
+                excess = max(0.0, res["water_total_mm"] - water_cap_mm)
+                utility -= excess / water_cap_mm
+            return -utility
 
         res = differential_evolution(
             wrapped, bounds, maxiter=40, popsize=6, tol=1e-6, polish=True,
@@ -640,7 +764,7 @@ class Rotator:
             best = pool[:max_seasons]
         return {
             "optimized_rotation": best,
-            "score": round(res.fun, 4) if hasattr(res, "fun") else None,
+            "score": round(-res.fun, 4) if hasattr(res, "fun") else None,
             "n_evals": int(res.nit) if hasattr(res, "nit") else None,
             "success": bool(res.success) if hasattr(res, "success") else None,
         }
@@ -669,6 +793,6 @@ def default_climate() -> dict:
 
 def scenario_from_deltas(temp_shift: float, precip_delta: float,
                          drought: float = 0.0) -> dict:
-    """A NEX-GDDP-CMIP6-style future scenario (deltas applied to baseline)."""
+    """Build an illustrative scenario from temperature and precipitation shifts."""
     return {"temp_shift": float(temp_shift), "precipitation": float(precip_delta),
             "drought": float(drought)}

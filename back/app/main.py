@@ -26,8 +26,8 @@ def create_app() -> FastAPI:
         title="NEX TERRA — Rotation Resilience Engine",
         description=(
             "Agricultural decision-support for Moroccan farmers. "
-            "Simulates crop rotations against satellite-derived soil + climate "
-            "data and ranks alternatives."
+            "Compares crop rotations with a prototype score, illustrative "
+            "climate scenarios, and explicit data provenance."
         ),
         version="0.1.0",
         docs_url="/docs",
@@ -38,10 +38,16 @@ def create_app() -> FastAPI:
     app.state.rotator = sim.Rotator()
     app.state.rotator.fit()  # scikit-learn fallback model (baseline)
 
-    # CORS for the Vite dev server
+    configured_origins = os.getenv("NEX_TERRA_ALLOWED_ORIGINS")
+    allowed_origins = (
+        [origin.strip().rstrip("/") for origin in configured_origins.split(",") if origin.strip()]
+        if configured_origins is not None
+        else ["http://localhost:5173", "http://127.0.0.1:5173"]
+    )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
